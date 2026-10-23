@@ -26,3 +26,15 @@ node_modules/
 .vscode/
 .DS_Store
 .directory
+
+# Gravações (o README de cada gravação é versionado; o vídeo não)
+/videos/**/*.mp4
+/videos/**/*.webm
+/videos/**/*.mkv
+
+# Testes do navegador
+/web/test-results/
+/web/playwright-report/
+
+# Cópia bruta do OpenStreetMap (baixada pelo osmimport)
+/cities/*/osm-*.json
