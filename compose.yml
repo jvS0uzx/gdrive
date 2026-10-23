@@ -1,0 +1,19 @@
+name: gdrive
+
+services:
+  engine:
+    build:
+      context: .
+      dockerfile: engine/Dockerfile
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      dockerfile: web/Dockerfile
+    ports:
+      - "8085:80"
+    depends_on:
+      engine:
+        condition: service_healthy
+    restart: unless-stopped
