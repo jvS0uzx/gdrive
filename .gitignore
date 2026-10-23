@@ -1,0 +1,28 @@
+# Go
+/engine/bin/
+*.test
+*.out
+coverage.*
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Node
+node_modules/
+/web/dist/
+
+# Ambiente
+.env
+.env.*
+!.env.example
+
+# Editor e sistema
+.idea/
+.vscode/
+.DS_Store
+.directory
