@@ -1,0 +1,19 @@
+@import "tailwindcss";
+@import "maplibre-gl/dist/maplibre-gl.css";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --color-ink: #0d1016;
+  --color-panel: #151a22;
+  --color-route: #ffb020;
+  --color-origin: #3ddc84;
+  --color-target: #ff5d5d;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  background: var(--color-ink);
+}
