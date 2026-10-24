@@ -12,7 +12,7 @@ from app.dispatch import dispatch
 from app.engine import Engine
 from app.jobs import run_due
 from app.outbox import relay_once
-from app.tracking import consume_once, ensure_group
+from app.tracking import consume_once, ensure_group, reclaim_once
 
 log = logging.getLogger("gdrive.worker")
 
@@ -57,6 +57,7 @@ async def main() -> None:
         loop("jobs", lambda: run_due(jobs), 0.2, stop),
         loop("outbox", lambda: relay_once(redis), 0.1, stop),
         loop("rastreio", lambda: consume_once(redis, consumer, block_ms=1000), 0, stop),
+        loop("rastreio pendente", lambda: reclaim_once(redis, consumer), 15, stop),
     )
     await engine.close()
     await redis.aclose()

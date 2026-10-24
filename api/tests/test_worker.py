@@ -101,3 +101,24 @@ async def test_carga_inicial_so_uma_vez(engine):
     assert [s["name"] for s in stores] == ["Acarajé da Dinha", "Pizzaria Longe"]
     assert couriers[0]["name"] == "Entregador 1" and couriers[0]["status"] == "offline" and len(couriers) == 4
     assert customers["n"] == 3
+
+
+async def test_chegada_que_falhou_no_meio_e_reprocessada(client, city, redis, jobs):
+    from app.tracking import reclaim_once
+
+    await online(redis, client, 1)
+    order = await create(client, city)
+    await client.post(f"/api/stores/1/orders/{order}/accept", json={"prep_minutes": 5})
+    await jobs()
+    offer = await offer_of(order)
+    await client.post(f"/api/offers/{offer['id']}/accept")
+    await ensure_group(redis)
+    data = json.dumps({"order_id": order, "courier_id": 1, "phase": "loja"})
+    await redis.xadd(TRACKING_STREAM, {"type": "entregador_chegou_na_loja", "data": data})
+    delivered = await redis.xreadgroup("workers", "caiu-no-meio", {TRACKING_STREAM: ">"}, count=10, block=100)
+    assert len(delivered[0][1]) == 1
+    assert await consume_once(redis, "outro", block_ms=100) == 0
+    assert await status_of(order) == "a_caminho_da_loja"
+    assert await reclaim_once(redis, "outro", idle_ms=0) == 1
+    assert await status_of(order) == "na_loja"
+    assert (await redis.xpending(TRACKING_STREAM, "workers"))["pending"] == 0
