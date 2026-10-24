@@ -137,7 +137,10 @@ func (h *Hub) apply(e Event) {
 	if e.Version >= o.Version {
 		o.Version, o.Status = e.Version, e.Status
 		if e.Store != nil {
-			o.Store, o.Name = e.Store, e.Name
+			o.Store = e.Store
+		}
+		if e.Name != "" {
+			o.Name = e.Name
 		}
 		if e.Customer != nil {
 			o.Customer = e.Customer

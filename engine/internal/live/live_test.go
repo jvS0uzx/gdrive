@@ -213,3 +213,12 @@ func TestDistanciaEmMetros(t *testing.T) {
 		t.Fatalf("0,01° de latitude deu %.1f m", d)
 	}
 }
+
+func TestEventoSemNomeDaLojaNaoApagaONome(t *testing.T) {
+	hub := New(nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	hub.apply(Event{Type: "pedido_criado", Order: 1, Version: 1, Status: "aguardando_loja", Store: &Point{1, 1}, Name: "Acarajé"})
+	hub.apply(Event{Type: "entregador_atribuido", Order: 1, Version: 3, Status: "a_caminho_da_loja", Store: &Point{1, 1}, Courier: 9})
+	if o := hub.orders[1]; o.Name != "Acarajé" || o.Courier != 9 {
+		t.Fatalf("pedido depois da atribuição: %+v", o)
+	}
+}
