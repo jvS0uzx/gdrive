@@ -11,7 +11,8 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "e2e": "playwright test",
-    "demo": "node scripts/record-demo.mjs"
+    "demo": "node scripts/record-demo.mjs",
+    "video": "node scripts/record-video.mjs"
   },
   "dependencies": {
     "maplibre-gl": "^6.15.0",
