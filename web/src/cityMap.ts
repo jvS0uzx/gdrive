@@ -57,8 +57,8 @@ export function metersBetween(a: LngLat, b: LngLat): number {
   return 2 * 6_371_000 * Math.asin(Math.sqrt(h));
 }
 
-export function panelPadding(margin = 32): PaddingOptions | number {
-  return window.innerWidth > 900 ? { top: margin, bottom: margin, right: margin, left: 368 + margin } : margin;
+export function panelPadding(margin = 32, width = window.innerWidth): PaddingOptions | number {
+  return width > 900 ? { top: margin, bottom: margin, right: margin, left: 368 + margin } : margin;
 }
 
 export function pin(content: string, color: string): HTMLElement {
@@ -136,7 +136,7 @@ export function useCityMap(setup: (map: MapLibre) => void) {
             layers: [{ id: "fundo", type: "background", paint: { "background-color": COLORS.ink } }],
           },
           bounds: m.bbox,
-          fitBoundsOptions: { padding: panelPadding() },
+          fitBoundsOptions: { padding: panelPadding(32, container.current.clientWidth) },
           attributionControl: false,
           dragRotate: false,
           maxZoom: 18,

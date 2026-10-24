@@ -186,6 +186,7 @@ export interface HistoryItem {
   id: number;
   store_name: string;
   courier_id: number | null;
+  courier_name: string | null;
   created_at: string;
   delivered_at: string | null;
   promised_at: string | null;
@@ -223,6 +224,7 @@ export interface OrderTrack {
   store: Point & { id: number; name: string };
   customer: Point;
   courier_id: number | null;
+  courier_name: string | null;
   created_at: string;
   promised_at: string | null;
   delivered_at: string | null;
