@@ -109,11 +109,13 @@ test("o card #id do pedido seleciona o pedido e a análise abre o acompanhamento
 
 test("a análise de um pedido em andamento compara rotas, explica o despacho e mede o trajeto", async ({ page }) => {
   await page.goto("/");
+  const quiet = ':not([data-alerts*="sinal_perdido"]):not([data-alerts*="parado"])';
   const moving = page.locator(
-    '[data-testid="card-pedido"][data-status="em_rota"], [data-testid="card-pedido"][data-status="a_caminho_da_loja"]',
+    `[data-testid="card-pedido"][data-status="em_rota"]${quiet}, [data-testid="card-pedido"][data-status="a_caminho_da_loja"]${quiet}`,
   );
   await expect(moving.first()).toBeVisible({ timeout: 20_000 });
-  const card = moving.first();
+  const riding = page.locator(`[data-testid="card-pedido"][data-status="em_rota"]${quiet}`);
+  const card = (await riding.count()) > 0 ? riding.first() : moving.first();
   const id = ((await card.getAttribute("aria-label")) ?? "").replace(/\D/g, "");
   await card.dispatchEvent("click");
 
