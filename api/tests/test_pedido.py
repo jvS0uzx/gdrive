@@ -206,3 +206,25 @@ async def test_cancelamento_libera_entregador_e_depois_da_coleta_nao_vale(client
 async def test_endereco_que_nao_e_de_cliente_da_404(client, city):
     response = await client.post("/api/orders", json={"store_id": 1, "address_id": 1})
     assert response.status_code == 404
+
+
+async def test_api_sobrevive_ao_banco_derrubar_as_conexoes(client, city):
+    from sqlalchemy import text
+    from sqlalchemy.ext.asyncio import create_async_engine
+
+    from app.config import settings
+
+    assert (await client.get("/api/stores")).status_code == 200
+    killer = create_async_engine(settings.database_url)
+    async with killer.begin() as conn:
+        await conn.execute(
+            text(
+                "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
+                "WHERE datname = current_database() AND pid <> pg_backend_pid()"
+            )
+        )
+    await killer.dispose()
+    assert (await client.get("/api/stores")).status_code == 200
+    assert (
+        await client.post("/api/orders", json={"store_id": 1, "address_id": city["customers"][0]})
+    ).status_code == 201

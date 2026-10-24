@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection, create_async_engine
 
 from app.config import settings
 
-engine = create_async_engine(settings.database_url, pool_size=10, max_overflow=20)
+engine = create_async_engine(settings.database_url, pool_size=10, max_overflow=20, pool_pre_ping=True)
 
 
 @asynccontextmanager
