@@ -8,3 +8,6 @@ linters:
         - (*os.File).Close
         - (net/http.ResponseWriter).Write
         - (*encoding/json.Encoder).Encode
+        - (*github.com/coder/websocket.Conn).CloseNow
+        - (*github.com/redis/go-redis/v9.PubSub).Close
+        - (*github.com/redis/go-redis/v9.Client).Close

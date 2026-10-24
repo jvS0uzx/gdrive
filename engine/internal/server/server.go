@@ -10,6 +10,7 @@ import (
 	"slices"
 
 	"github.com/jvS0uzx/gdrive/engine/internal/city"
+	"github.com/jvS0uzx/gdrive/engine/internal/live"
 	"github.com/jvS0uzx/gdrive/engine/internal/route"
 )
 
@@ -20,11 +21,13 @@ const (
 )
 
 type Server struct {
-	city    *city.City
-	graph   *route.Graph
-	geojson []byte
-	meta    []byte
-	log     *slog.Logger
+	city      *city.City
+	graph     *route.Graph
+	geojson   []byte
+	meta      []byte
+	addresses []byte
+	hub       *live.Hub
+	log       *slog.Logger
 }
 
 type point struct {
@@ -59,7 +62,28 @@ type routeResponse struct {
 	CumulativeSeconds []float64  `json:"cumulative_seconds"`
 }
 
-func New(c *city.City, g *route.Graph, log *slog.Logger) (*Server, error) {
+type place struct {
+	Node int32   `json:"node"`
+	Lat  float64 `json:"lat"`
+	Lon  float64 `json:"lon"`
+	Name string  `json:"name,omitempty"`
+}
+
+func addressesOf(c *city.City) ([]byte, error) {
+	groups := map[string][]place{"stores": {}, "courier_homes": {}, "customers": {}}
+	keys := map[city.AddressKind]string{city.Store: "stores", city.CourierHome: "courier_homes", city.Customer: "customers"}
+	for _, a := range c.Addresses {
+		lat, lon := c.LatLon(a.Node)
+		groups[keys[a.Kind]] = append(groups[keys[a.Kind]], place{Node: a.Node, Lat: round6(lat), Lon: round6(lon), Name: a.Name})
+	}
+	return json.Marshal(groups)
+}
+
+func round6(v float64) float64 {
+	return math.Round(v*1e6) / 1e6
+}
+
+func New(c *city.City, g *route.Graph, hub *live.Hub, log *slog.Logger) (*Server, error) {
 	geojson, err := c.GeoJSON()
 	if err != nil {
 		return nil, err
@@ -95,7 +119,11 @@ func New(c *city.City, g *route.Graph, log *slog.Logger) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Server{city: c, graph: g, geojson: geojson, meta: meta, log: log}, nil
+	addresses, err := addressesOf(c)
+	if err != nil {
+		return nil, err
+	}
+	return &Server{city: c, graph: g, geojson: geojson, meta: meta, addresses: addresses, hub: hub, log: log}, nil
 }
 
 func (s *Server) Handler() http.Handler {
@@ -112,7 +140,17 @@ func (s *Server) Handler() http.Handler {
 		w.Header().Set("Cache-Control", "public, max-age=300")
 		w.Write(s.geojson)
 	})
+	mux.HandleFunc("GET /city/addresses", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(s.addresses)
+	})
 	mux.HandleFunc("POST /route", s.route)
+	if s.hub != nil {
+		mux.HandleFunc("POST /eta", s.eta)
+		mux.HandleFunc("GET /ws/courier", s.hub.ServeCourier)
+		mux.HandleFunc("GET /ws/watch/central", s.hub.ServeCentral)
+		mux.HandleFunc("GET /ws/watch/order/{id}", s.hub.ServeOrder)
+	}
 	return mux
 }
 
@@ -176,6 +214,64 @@ func (s *Server) route(w http.ResponseWriter, r *http.Request) {
 		resp.CumulativeSeconds[i] = round1(p.Cumulative[i])
 	}
 	writeJSON(w, http.StatusOK, resp)
+}
+
+type etaRequest struct {
+	To       point   `json:"to"`
+	Couriers []int64 `json:"couriers"`
+	Rain     bool    `json:"rain"`
+}
+
+type eta struct {
+	Courier int64   `json:"courier_id"`
+	Seconds float64 `json:"seconds"`
+}
+
+func (s *Server) eta(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
+	var req etaRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || len(req.Couriers) > 2000 {
+		writeError(w, http.StatusBadRequest, "json inválido")
+		return
+	}
+	target, err := s.snap(req.To)
+	if err != nil {
+		writeError(w, statusOf(err), "destino: "+err.Error())
+		return
+	}
+	positions, err := s.hub.Positions(r.Context(), req.Couriers)
+	if err != nil {
+		s.log.Error("posições no redis", "err", err)
+		writeError(w, http.StatusServiceUnavailable, "posições indisponíveis")
+		return
+	}
+	var ids []int64
+	var nodes []int32
+	for _, id := range req.Couriers {
+		p, ok := positions[id]
+		if !ok {
+			continue
+		}
+		x, y := s.city.ToXY(p.Lat, p.Lon)
+		node, dist := s.graph.Nearest(x, y)
+		if node < 0 || dist > maxSnapMeters {
+			continue
+		}
+		ids = append(ids, id)
+		nodes = append(nodes, node)
+	}
+	factor := 1.0
+	if req.Rain {
+		factor = rainFactor
+	}
+	times := s.graph.TimesTo(target, nodes, factor)
+	out := make([]eta, 0, len(ids))
+	for i, id := range ids {
+		if !math.IsInf(times[i], 1) {
+			out = append(out, eta{id, round1(times[i])})
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"etas": out})
 }
 
 func (s *Server) mainRoads(streets []int32) []road {

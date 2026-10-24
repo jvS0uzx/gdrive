@@ -2,6 +2,7 @@ package server
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -11,7 +12,11 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/alicebob/miniredis/v2"
+	"github.com/redis/go-redis/v9"
+
 	"github.com/jvS0uzx/gdrive/engine/internal/city"
+	"github.com/jvS0uzx/gdrive/engine/internal/live"
 	"github.com/jvS0uzx/gdrive/engine/internal/route"
 )
 
@@ -48,7 +53,7 @@ func gridCity(t *testing.T) *city.City {
 func newTestServer(t *testing.T) (*httptest.Server, *city.City) {
 	t.Helper()
 	c := gridCity(t)
-	s, err := New(c, route.New(c), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	s, err := New(c, route.New(c), nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -179,5 +184,82 @@ func TestCidadeServeMetaEGeoJSON(t *testing.T) {
 	}
 	if len(fc.Features) != len(c.Ways) {
 		t.Fatalf("%d features para %d vias", len(fc.Features), len(c.Ways))
+	}
+}
+
+func TestETADeVariosEntregadoresAteUmPonto(t *testing.T) {
+	c := gridCity(t)
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	defer rdb.Close()
+	hub := live.New(rdb, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	s, err := New(c, route.New(c), hub, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ts := httptest.NewServer(s.Handler())
+	defer ts.Close()
+	ctx := context.Background()
+	near, far := c.Point(1), c.Point(int32(len(c.Nodes)-1))
+	rdb.HSet(ctx, live.CourierKey(1), "lat", near[1], "lon", near[0])
+	rdb.HSet(ctx, live.CourierKey(2), "lat", far[1], "lon", far[0])
+	target := pointOf(c, 0)
+	body, _ := json.Marshal(map[string]any{"to": target, "couriers": []int64{1, 2, 3}})
+	resp, err := http.Post(ts.URL+"/eta", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var out struct {
+		ETAs []struct {
+			Courier int64   `json:"courier_id"`
+			Seconds float64 `json:"seconds"`
+		} `json:"etas"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusOK || len(out.ETAs) != 2 {
+		t.Fatalf("status %d, etas %+v", resp.StatusCode, out.ETAs)
+	}
+	got := map[int64]float64{}
+	for _, e := range out.ETAs {
+		got[e.Courier] = e.Seconds
+	}
+	if !(got[1] > 0 && got[2] > got[1]) {
+		t.Fatalf("o mais perto deveria chegar antes: %v", got)
+	}
+}
+
+func TestEnderecosParaCargaInicial(t *testing.T) {
+	ts, _ := newTestServer(t)
+	resp, err := http.Get(ts.URL + "/city/addresses")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var out map[string][]map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		t.Fatal(err)
+	}
+	for _, k := range []string{"stores", "courier_homes", "customers"} {
+		if _, ok := out[k]; !ok {
+			t.Fatalf("sem a lista %q: %v", k, out)
+		}
+	}
+	if len(out["customers"]) == 0 || out["customers"][0]["lat"] == nil {
+		t.Fatalf("clientes sem coordenada: %v", out["customers"])
+	}
+}
+
+func TestSemRedisNaoHaTempoReal(t *testing.T) {
+	ts, _ := newTestServer(t)
+	resp, err := http.Post(ts.URL+"/eta", "application/json", strings.NewReader(`{}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound && resp.StatusCode != http.StatusMethodNotAllowed {
+		t.Fatalf("sem redis, /eta respondeu %d", resp.StatusCode)
 	}
 }

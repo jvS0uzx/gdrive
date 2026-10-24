@@ -11,7 +11,10 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/redis/go-redis/v9"
+
 	"github.com/jvS0uzx/gdrive/engine/internal/city"
+	"github.com/jvS0uzx/gdrive/engine/internal/live"
 	"github.com/jvS0uzx/gdrive/engine/internal/route"
 	"github.com/jvS0uzx/gdrive/engine/internal/server"
 )
@@ -52,7 +55,20 @@ func main() {
 		log.Error("cidade não carregou", "err", err)
 		os.Exit(1)
 	}
-	srv, err := server.New(c, route.New(c), log)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	var hub *live.Hub
+	if url := os.Getenv("REDIS_URL"); url != "" {
+		opts, err := redis.ParseURL(url)
+		if err != nil {
+			log.Error("REDIS_URL inválida", "err", err)
+			os.Exit(1)
+		}
+		hub = live.New(redis.NewClient(opts), log)
+		hub.Run(ctx)
+		log.Info("tempo real ligado", "redis", opts.Addr)
+	}
+	srv, err := server.New(c, route.New(c), hub, log)
 	if err != nil {
 		log.Error("servidor não montou", "err", err)
 		os.Exit(1)
@@ -67,8 +83,6 @@ func main() {
 		WriteTimeout:      30 * time.Second,
 		IdleTimeout:       2 * time.Minute,
 	}
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
 	go func() {
 		if err := httpSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Error("servidor caiu", "err", err)
