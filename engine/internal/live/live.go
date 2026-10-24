@@ -23,6 +23,7 @@ const (
 	arrivalMeters   = 50.0
 	snapshotEvery   = 500 * time.Millisecond
 	targetFreshness = 2 * time.Second
+	staleAfter      = 20 * time.Second
 	replayEntries   = 20000
 )
 
@@ -204,11 +205,25 @@ func (h *Hub) followOrders(ctx context.Context) {
 	}
 }
 
+func (h *Hub) prune(now time.Time) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for id, c := range h.couriers {
+		if now.Sub(c.seen) > staleAfter {
+			delete(h.couriers, id)
+		}
+	}
+}
+
 func (h *Hub) snapshot() []byte {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	couriers := make([][4]float64, 0, len(h.couriers))
+	now := time.Now()
 	for id, c := range h.couriers {
+		if now.Sub(c.seen) > staleAfter {
+			continue
+		}
 		busy := 0.0
 		if c.pos.Order != 0 {
 			busy = 1
@@ -232,7 +247,8 @@ func (h *Hub) broadcastSnapshots(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
-		case <-tick.C:
+		case now := <-tick.C:
+			h.prune(now)
 		}
 		h.mu.RLock()
 		n := len(h.central)

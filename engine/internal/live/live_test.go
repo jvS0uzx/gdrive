@@ -222,3 +222,22 @@ func TestEventoSemNomeDaLojaNaoApagaONome(t *testing.T) {
 		t.Fatalf("pedido depois da atribuição: %+v", o)
 	}
 }
+
+func TestEntregadorQueParouDeMandarPosicaoSaiDaCentral(t *testing.T) {
+	hub := New(nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	hub.couriers[1] = &courierState{pos: position{Courier: 1, Lat: -12.97, Lon: -38.5}, seen: time.Now()}
+	hub.couriers[2] = &courierState{pos: position{Courier: 2, Lat: -12.98, Lon: -38.5}, seen: time.Now().Add(-time.Minute)}
+	var snap struct {
+		Couriers [][4]float64 `json:"couriers"`
+	}
+	if err := json.Unmarshal(hub.snapshot(), &snap); err != nil {
+		t.Fatal(err)
+	}
+	if len(snap.Couriers) != 1 || snap.Couriers[0][0] != 1 {
+		t.Fatalf("retrato deveria ter só o entregador 1: %v", snap.Couriers)
+	}
+	hub.prune(time.Now())
+	if _, ok := hub.couriers[2]; ok {
+		t.Fatal("entregador parado há um minuto continua no estado")
+	}
+}
