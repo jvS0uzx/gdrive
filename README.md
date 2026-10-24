@@ -1,6 +1,6 @@
 # GDrive
 
-![Fase 1: a central ao vivo com 60 entregadores andando por Salvador, um card por pedido na cor do status, e o acompanhamento de um pedido](docs/assets/fase-1.gif)
+![Fase 2: o painel da loja, o entregador pelo celular com piloto automático, os alertas na central com a desatribuição e o replay de uma entrega](docs/assets/fase-2.gif)
 
 Simulação de despacho de delivery sobre o mapa real de Salvador. Os entregadores andam pelas
 ruas de verdade seguindo rotas de um roteador próprio, o despacho oferece cada pedido ao
@@ -9,7 +9,7 @@ vivo.
 
 O objetivo é medir, com número, até onde o sistema escala na horizontal.
 
-> **Estado:** fases 0 (mapa e roteador) e 1 (núcleo do delivery) concluídas.
+> **Estado:** fases 0 (mapa e roteador), 1 (núcleo do delivery) e 2 (operação) concluídas.
 >
 > **Navegador:** testado apenas no Chromium, no Linux. Google Chrome e outros navegadores não
 > são testados.
@@ -22,15 +22,68 @@ docker compose up --build
 
 | Endereço | O que mostra |
 |---|---|
-| <http://localhost:8085> | A central ao vivo: entregadores andando, um card por pedido na cor do status |
+| <http://localhost:8085> | A central ao vivo: entregadores, um card por pedido na cor do status, alertas, chuva e pico |
 | <http://localhost:8085/pedido/1> | O que o cliente vê: entregador no mapa, etapas e linha do tempo |
+| <http://localhost:8085/loja> | Painel de uma loja: aceitar, recusar, marcar pronto, gerar pedido de teste |
+| <http://localhost:8085/entregador> | O entregador pelo celular: oferta, piloto automático, coleta e entrega |
+| <http://localhost:8085/historico> | Entregas feitas, com o replay do trajeto contra a rota prevista |
 | <http://localhost:8085/rota> | A rota mais rápida entre dois cliques (fase 0) |
 
 O compose sobe junto um simulador com 60 entregadores e um pedido novo a cada ~4 s, andando
 8× mais rápido que o real. Para mudar: `SIM_COURIERS=200 SIM_ORDER_EVERY=1s SIM_SPEED=20
 docker compose up -d sim`.
 
+## Fase 2: a operação
+
+**Quem opera.**
+
+- **Loja** (`/loja`): os pedidos em colunas (novos, em preparo, prontos, saíram), aceite com
+  tempo de preparo, recusa, "pronto" e um pedido de teste para um cliente sorteado entre 300 m
+  e 4 km da loja pelo PostGIS. Loja operada na mão sai do piloto automático do simulador.
+- **Entregador** (`/entregador`): tela de celular com a oferta e a contagem regressiva, piloto
+  automático que anda pela rota real e manda a posição pelo mesmo WebSocket dos entregadores
+  simulados, coleta e entrega. Desligar o piloto deixa o entregador parado, e a central percebe.
+- **Central:** alertas ao vivo, reatribuição, chuva, pico e falhas simuladas por entregador.
+- **Histórico** (`/historico`): cada entrega com o trajeto gravado e o replay contra a rota
+  prevista.
+
+**Alertas.** Um aberto por tipo e pedido (índice único parcial); abrir e fechar sai na outbox.
+Só atraso e sem entregador entram na linha do tempo do cliente.
+
+| Alerta | Quem detecta | Abre quando | Fecha quando |
+|---|---|---|---|
+| Sem sinal | worker, a cada 5 s | 20 s sem posição de um entregador com corrida | a posição volta, ele é desatribuído ou o pedido termina |
+| Parado | engine | menos de 25 m de deslocamento em 30 s a caminho do destino | volta a andar ou chega |
+| Fora da rota | engine | 3 posições seguidas a mais de 150 m da rota prevista | volta a menos de 60 m ou chega |
+| Atrasado | worker, job no prazo | passou do horário prometido sem entregar | o pedido termina |
+| Sem entregador | despacho | 2 min sem ninguém livre até 6 km | alguém é atribuído |
+
+**Reatribuição.** Desatribuir devolve o pedido para "em preparo", libera o entregador e
+recomeça o despacho sem ele. Atribuir na mão lista os entregadores livres e com sinal até
+6 km, ordenados pelo tempo pelas ruas até a loja. O despacho também deixa de oferecer corrida
+a quem está sem sinal.
+
+**Simulação.** A chuva multiplica todo trajeto por 1,4 (rota, ETA e rota prevista); o pico
+multiplica a chegada de pedidos. Por entregador: derrubar o sinal, parar no lugar ou desviar
+(passa por um ponto a 700 m da linha reta e volta).
+
+**Histórico.** Na entrega, um job grava cada trecho na tabela `tracks` como `LineStringM`
+(M = instante da posição), com a rota prevista ao lado e a distância medida pelo PostGIS.
+
+**Os testes que sustentam isso:**
+
+- api e worker contra Postgres e Redis de verdade: desatribuir e o despacho oferecer a outro,
+  atribuição na mão fechando o alerta, sinal perdido abrindo e fechando, despacho ignorando
+  quem está sem sinal, parado e desvio vindos do rastreio, atraso no prazo, controles da
+  simulação, painel da loja, dados do entregador e trajeto gravado na entrega.
+- engine: parado dispara uma vez e avisa quando volta a andar, desvio só com 3 posições fora,
+  distância até a rota, alerta entrando e saindo do retrato, chuva vinda do Redis.
+- e2e no Chromium: entregador sem sinal vira alerta e a central libera o pedido; chuva e pico
+  pelo painel; painel da loja; corrida completa pelo celular; replay do histórico.
+
 ## Fase 1: o núcleo do delivery
+
+![Fase 1: a central ao vivo com 60 entregadores andando por Salvador, um card por pedido na cor do status, e o acompanhamento de um pedido](docs/assets/fase-1.gif)
 
 **A vida de um pedido.** O cliente pede de um dos 1.573 restaurantes reais. A loja aceita e
 informa o preparo, e o despacho começa na hora: busca entregadores num raio de 2 km da loja,
@@ -140,7 +193,15 @@ no grafo com as setas invertidas, devolve o tempo de N entregadores até ela.
 | `POST /api/stores/{sid}/orders/{id}/accept` · `reject` · `ready` | Ações da loja |
 | `POST /api/offers/{id}/accept` · `decline` | Resposta do entregador à oferta; aceite vencido dá 409 |
 | `POST /api/orders/{id}/pickup` · `deliver` | Coleta (exige pedido pronto) e entrega |
-| `POST /api/couriers/{id}/online` · `offline` | Turno do entregador |
+| `POST /api/couriers/{id}/online` · `offline` | Turno do entregador (`{"human": true}` tira da simulação) |
+| `GET /api/couriers/{id}` | Entregador com a oferta pendente e a corrida ativa |
+| `GET /api/orders/{id}/candidates` | Entregadores livres e com sinal até 6 km, pelo tempo até a loja |
+| `POST /api/orders/{id}/assign` · `unassign` | Atribuição e desatribuição pela central |
+| `GET /api/alerts?open=true` | Alertas abertos ou todos |
+| `GET /api/stores?q=` · `GET /api/stores/{id}` · `PUT /api/stores/{id}/manual` | Busca, dados e modo manual da loja |
+| `GET /api/stores/{id}/orders` · `POST /api/stores/{id}/test-order` | Pedidos da loja e pedido de teste |
+| `GET /api/history` · `GET /api/orders/{id}/track` | Entregas feitas e o trajeto gravado de cada uma |
+| `GET` · `PUT /api/sim` · `POST /api/sim/couriers/{id}/{sem_sinal\|parar\|desviar}` | Chuva, pico e falhas simuladas |
 | `GET /api/stats` | Pedidos por status, entregadores por status, entregues e tempo médio |
 
 **engine:**
@@ -151,7 +212,8 @@ no grafo com as setas invertidas, devolve o tempo de N entregadores até ela.
 | `POST /route` | Rota mais rápida com tempo, distância, principais vias e tempo acumulado por nó |
 | `POST /eta` | Tempo de N entregadores até um ponto, numa busca só (usado pelo despacho) |
 | `WS /ws/courier?id=` | Posição do entregador, `{"lat":..,"lon":..}` |
-| `WS /ws/watch/central` | Retrato da operação a cada 500 ms |
+| `WS /ws/watch/central` | Retrato da operação a cada 500 ms, com os alertas de cada pedido e a chuva |
+| `GET /journey/{id}` | Rota prevista e posições de cada trecho de um pedido em andamento |
 | `WS /ws/watch/order/{id}` | Eventos e posição do entregador de um pedido |
 
 Origem e destino de rota são presos ao nó mais próximo, até 400 m. Mais longe que isso, a
@@ -206,7 +268,7 @@ CHROMIUM_PATH=/usr/bin/chromium BASE_URL=http://localhost:8085 pnpm demo
 |---|---|---|---|
 | `osmimport` | Go | Importa a malha e as lojas do OpenStreetMap | fase 0 |
 | `engine` | Go | Roteador, WebSocket, posição, geofence; roda em N instâncias | fase 0 |
-| `web` | React, TypeScript, MapLibre | Central, acompanhamento do pedido, planejador de rota | fase 0 |
+| `web` | React, TypeScript, MapLibre | Central, acompanhamento, loja, entregador, histórico, planejador de rota | fase 0 |
 | `sim` | Go | Entregadores, lojas e clientes simulados, um WebSocket real por entregador | fase 1 |
 | `api` e `worker` | Python, FastAPI | Pedidos, máquina de estados, despacho, prazos | fase 1 |
 | Estado | PostgreSQL + PostGIS | Fonte da verdade; outbox e jobs na transação do pedido | fase 1 |
@@ -219,6 +281,6 @@ CHROMIUM_PATH=/usr/bin/chromium BASE_URL=http://localhost:8085 pnpm demo
   cliques.
 - [x] **1. Núcleo:** pedido de ponta a ponta, despacho com repasse e raio crescente,
   acompanhamento do cliente, mapa da central.
-- [ ] **2. Operação:** painel da loja, entregador pelo celular, alertas, histórico com
-  replay, rush e chuva.
+- [x] **2. Operação:** painel da loja, entregador pelo celular, alertas, reatribuição,
+  histórico com replay, pico e chuva.
 - [ ] **3. Escala:** várias instâncias, modo carga, métricas e teste de carga.
