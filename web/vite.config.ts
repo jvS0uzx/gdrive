@@ -13,6 +13,7 @@ export default defineConfig({
       "/ws": { target, ws: true },
       "/city": target,
       "/route": target,
+      "/journey": target,
     },
   },
 });

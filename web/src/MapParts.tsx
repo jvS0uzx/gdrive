@@ -8,6 +8,23 @@ export function MapSurface({ container, ready }: { container: RefObject<HTMLDivE
   );
 }
 
+export function LineSample({ color, dashed = false }: { color: string; dashed?: boolean }) {
+  return (
+    <svg width="18" height="6" viewBox="0 0 18 6" aria-hidden="true" className="shrink-0">
+      <line
+        x1="1"
+        y1="3"
+        x2="17"
+        y2="3"
+        stroke={color}
+        strokeWidth={dashed ? 2 : 3}
+        strokeLinecap={dashed ? "butt" : "round"}
+        strokeDasharray={dashed ? "3 2" : undefined}
+      />
+    </svg>
+  );
+}
+
 export function OsmCredit() {
   return (
     <>

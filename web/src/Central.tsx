@@ -7,7 +7,9 @@ import { formatDuration, formatInt } from "./format";
 import { ACTIVE_STATUSES, statusFill, statusLabel, statusTone } from "./labels";
 import { useSocket } from "./live";
 import { FloatingCredit, MapSurface } from "./MapParts";
-import { Link, navigate } from "./router";
+import OrderAnalysis from "./OrderAnalysis";
+import { addAlternativeLayers, addPlannedLayer, addWalkedLayers } from "./routeLayers";
+import { Link } from "./router";
 
 type CourierTuple = [id: number, lon: number, lat: number, busy: number];
 
@@ -24,17 +26,17 @@ interface Card {
   root: HTMLAnchorElement;
   body: HTMLDivElement;
   name: HTMLDivElement;
-  status: string;
+  look: string;
 }
 
 const PICKABLE = ["entregadores", "lojas", "clientes"];
 const STATS_EVERY_MS = 5000;
 const NAMES_FROM_ZOOM = 14;
-const CARD_BODY = "rounded-md px-1.5 py-0.5 text-ink shadow-lg ring-1 ring-ink/70 transition-colors duration-500";
+const CARD_BODY = "rounded-md px-1.5 py-0.5 text-ink shadow-lg transition-colors duration-500";
 
 const lngLat = (p: Point): LngLat => [p.lon, p.lat];
 
-function createCard(id: number): Card {
+function createCard(id: number, onPick: (id: number) => void): Card {
   const root = document.createElement("a");
   root.href = `/pedido/${id}`;
   root.className = "block cursor-pointer hover:z-10";
@@ -43,7 +45,7 @@ function createCard(id: number): Card {
     e.stopPropagation();
     if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
     e.preventDefault();
-    navigate(`/pedido/${id}`);
+    onPick(id);
   });
   const body = document.createElement("div");
   const label = document.createElement("div");
@@ -55,7 +57,7 @@ function createCard(id: number): Card {
   root.append(body);
   const marker = new Marker({ element: root, anchor: "bottom" });
   root.setAttribute("aria-label", `Pedido #${id}`);
-  return { marker, root, body, name, status: "" };
+  return { marker, root, body, name, look: "" };
 }
 
 function cardAnchor(order: LiveOrder, couriers: Map<number, LngLat>): LngLat | null {
@@ -79,6 +81,9 @@ function addLiveLayers(map: MapLibre) {
     layout: { "line-cap": "round" },
     paint: { "line-color": COLORS.highlight, "line-width": 1.5, "line-dasharray": [2, 2], "line-opacity": 0.7 },
   });
+  addPlannedLayer(map);
+  addAlternativeLayers(map);
+  addWalkedLayers(map);
   map.addLayer({
     id: "lojas",
     type: "circle",
@@ -126,7 +131,7 @@ function addLiveLayers(map: MapLibre) {
   });
 }
 
-function selectionFeatures(selection: Selection, snapshot: Snapshot): Feature[] {
+function selectionFeatures(selection: Selection, snapshot: Snapshot, withLine: boolean): Feature[] {
   if (!selection) return [];
   const courierAt = (id: number | undefined) => {
     const c = snapshot.couriers.find((c) => c[0] === id);
@@ -137,7 +142,8 @@ function selectionFeatures(selection: Selection, snapshot: Snapshot): Feature[] 
   if (!order?.store) return [];
   const features: Feature[] = [point(lngLat(order.store)), ...courierAt(order.courier_id)];
   if (order.customer) {
-    features.push(point(lngLat(order.customer)), line([lngLat(order.store), lngLat(order.customer)]));
+    features.push(point(lngLat(order.customer)));
+    if (withLine) features.push(line([lngLat(order.store), lngLat(order.customer)]));
   }
   return features;
 }
@@ -164,11 +170,23 @@ export default function Central() {
   const [hovered, setHovered] = useState<number | null>(null);
   const [zoomed, setZoomed] = useState(false);
   const cards = useRef(new Map<number, Card>());
+  const latest = useRef<Snapshot | null>(null);
   const highlight: Selection = hovered !== null ? { kind: "order", id: hovered } : selection;
+  const selectedId = selection?.kind === "order" ? selection.id : null;
 
   const connected = useSocket<Snapshot>("/ws/watch/central", (message) => {
-    if (message.type === "snapshot") setSnapshot(message);
+    if (message.type !== "snapshot") return;
+    latest.current = message;
+    setSnapshot(message);
   });
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setSelection(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   useEffect(() => {
     document.title = "Central · GDrive";
@@ -216,15 +234,19 @@ export default function Central() {
       stacks.set(key, index + 1);
       let card = cards.current.get(o.id);
       if (!card) {
-        card = createCard(o.id);
+        card = createCard(o.id, (id) => setSelection({ kind: "order", id }));
         card.marker.setLngLat(at).addTo(m);
         cards.current.set(o.id, card);
       }
       card.marker.setLngLat(at).setOffset([0, -4 - index * step]);
-      if (card.status !== o.status) {
-        card.body.className = `${CARD_BODY} ${statusFill(o.status)}`;
+      const selected = o.id === selectedId;
+      const look = `${CARD_BODY} ${statusFill(o.status)} ${selected ? "ring-2 ring-white" : "ring-1 ring-ink/70"}`;
+      if (card.look !== look) {
+        card.body.className = look;
         card.root.dataset.status = o.status;
-        card.status = o.status;
+        card.root.dataset.selected = String(selected);
+        card.root.style.zIndex = selected ? "20" : "";
+        card.look = look;
       }
       const name = o.store_name ?? "";
       if (card.name.textContent !== name) card.name.textContent = name;
@@ -237,7 +259,7 @@ export default function Central() {
       card.marker.remove();
       cards.current.delete(id);
     }
-  }, [map, ready, snapshot, zoomed]);
+  }, [map, ready, snapshot, zoomed, selectedId]);
 
   useEffect(() => {
     const placed = cards.current;
@@ -261,7 +283,9 @@ export default function Central() {
   useEffect(() => {
     const m = map.current;
     if (!m || !ready || !snapshot) return;
-    m.getSource<GeoJSONSource>("selecao")?.setData(collection(selectionFeatures(highlight, snapshot)));
+    m.getSource<GeoJSONSource>("selecao")?.setData(
+      collection(selectionFeatures(highlight, snapshot, hovered !== null)),
+    );
   }, [map, ready, snapshot, highlight?.kind, highlight?.id]);
 
   useEffect(() => {
@@ -279,9 +303,11 @@ export default function Central() {
     };
     const onClick = (e: MapMouseEvent) => {
       const hit = hitAt(e);
-      setSelection(
-        hit ? { kind: hit.layer.id === "entregadores" ? "courier" : "order", id: Number(hit.properties.id) } : null,
-      );
+      if (!hit) return setSelection(null);
+      const id = Number(hit.properties.id);
+      if (hit.layer.id !== "entregadores") return setSelection({ kind: "order", id });
+      const order = latest.current?.orders.find((o) => o.courier_id === id);
+      setSelection(order ? { kind: "order", id: order.id } : { kind: "courier", id });
     };
     const onMove = (e: MapMouseEvent) => {
       m.getCanvas().style.cursor = hitAt(e) ? "pointer" : "";
@@ -303,8 +329,9 @@ export default function Central() {
     return { total: snapshot.couriers.length, busy, free: snapshot.couriers.length - busy, byStatus, orders };
   }, [snapshot]);
 
-  const selectedOrder =
-    selection?.kind === "order" ? snapshot?.orders.find((o) => o.id === selection.id) : undefined;
+  const selectedOrder = selectedId !== null ? snapshot?.orders.find((o) => o.id === selectedId) : undefined;
+  const selectedOrderCourier =
+    selectedOrder?.courier_id !== undefined ? snapshot?.couriers.find((c) => c[0] === selectedOrder.courier_id) : undefined;
   const selectedCourier =
     selection?.kind === "courier" ? snapshot?.couriers.find((c) => c[0] === selection.id) : undefined;
   const courierOrder = selectedCourier ? snapshot?.orders.find((o) => o.courier_id === selectedCourier[0]) : undefined;
@@ -374,31 +401,22 @@ export default function Central() {
           )}
         </section>
 
-        {(selectedOrder || selectedCourier) && (
+        {selectedCourier && (
           <section className="mx-4 mt-4 rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-xs" data-testid="selecao">
             <div className="flex items-start justify-between gap-3">
-              {selectedOrder ? (
-                <div className="min-w-0">
-                  <p className="truncate text-sm text-zinc-100">{selectedOrder.store_name ?? "Loja"}</p>
-                  <p className={statusTone(selectedOrder.status)}>
-                    Pedido #{selectedOrder.id} · {statusLabel(selectedOrder.status)}
-                  </p>
-                  {selectedOrder.courier_id && <p className="text-zinc-400">Entregador #{selectedOrder.courier_id}</p>}
-                  <Link to={`/pedido/${selectedOrder.id}`} className="mt-1 inline-block text-route hover:underline">
-                    Acompanhar pedido →
-                  </Link>
-                </div>
-              ) : selectedCourier ? (
-                <div className="min-w-0">
-                  <p className="text-sm text-zinc-100">Entregador #{selectedCourier[0]}</p>
-                  <p className="text-zinc-400">{selectedCourier[3] === 1 ? "Ocupado" : "Livre"}</p>
-                  {courierOrder && (
-                    <Link to={`/pedido/${courierOrder.id}`} className="mt-1 inline-block text-route hover:underline">
-                      Pedido #{courierOrder.id} · {courierOrder.store_name ?? "Loja"} →
-                    </Link>
-                  )}
-                </div>
-              ) : null}
+              <div className="min-w-0">
+                <p className="text-sm text-zinc-100">Entregador #{selectedCourier[0]}</p>
+                <p className="text-zinc-400">{selectedCourier[3] === 1 ? "Ocupado" : "Livre"}</p>
+                {courierOrder && (
+                  <button
+                    type="button"
+                    onClick={() => setSelection({ kind: "order", id: courierOrder.id })}
+                    className="mt-1 text-route hover:underline"
+                  >
+                    Analisar o pedido #{courierOrder.id} →
+                  </button>
+                )}
+              </div>
               <button
                 type="button"
                 onClick={() => setSelection(null)}
@@ -460,6 +478,17 @@ export default function Central() {
           </span>
         </footer>
       </aside>
+      {selectedId !== null && (
+        <OrderAnalysis
+          key={selectedId}
+          orderId={selectedId}
+          order={selectedOrder}
+          courierAt={selectedOrderCourier ? [selectedOrderCourier[1], selectedOrderCourier[2]] : undefined}
+          map={map}
+          ready={ready}
+          onClose={() => setSelection(null)}
+        />
+      )}
       <FloatingCredit />
     </div>
   );

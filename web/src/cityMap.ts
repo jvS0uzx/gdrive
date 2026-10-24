@@ -16,6 +16,8 @@ export const COLORS = {
   busy: "#ffb020",
   store: "#a78bfa",
   customer: "#38bdf8",
+  shortest: "#e4e4e7",
+  noExpressway: "#2dd4bf",
   storeDot: "#71717a",
   customerDot: "#a1a1aa",
   highlight: "#f4f4f5",
@@ -45,6 +47,14 @@ export function line(coordinates: LngLat[], properties: Record<string, unknown> 
 
 export function collection(features: Feature[]): FeatureCollection {
   return { type: "FeatureCollection", features };
+}
+
+export function metersBetween(a: LngLat, b: LngLat): number {
+  const rad = Math.PI / 180;
+  const dLat = (b[1] - a[1]) * rad;
+  const dLon = (b[0] - a[0]) * rad;
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(a[1] * rad) * Math.cos(b[1] * rad) * Math.sin(dLon / 2) ** 2;
+  return 2 * 6_371_000 * Math.asin(Math.sqrt(h));
 }
 
 export function panelPadding(margin = 32): PaddingOptions | number {

@@ -16,6 +16,10 @@ export function formatInt(n: number): string {
   return n.toLocaleString("pt-BR");
 }
 
+export function formatMeters(meters: number): string {
+  return `${formatInt(Math.round(meters))} m`;
+}
+
 export function formatClock(iso: string, withSeconds = false): string {
   return new Date(iso).toLocaleTimeString("pt-BR", {
     timeZone: "America/Bahia",
