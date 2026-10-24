@@ -41,45 +41,37 @@ do mapa.
 
 ## Texto do post
 
-Comecei um projeto pessoal para estudar o algoritmo de despacho de um delivery: qual
-entregador leva o pedido, por qual caminho e em quanto tempo. O nome é GDrive.
+Versão final, reescrita em tom de conversa a pedido do dono. O crédito do OpenStreetMap
+aparece no próprio vídeo, no rodapé do painel.
 
-Fechei a fase 0 de 4: o mapa e o roteador.
+Faz um tempo que venho mexendo, nas horas vagas, num projeto pessoal pra testar uma ideia:
+entender como funciona por trás o despacho de um delivery. Quem pega o pedido, por onde vai e
+quanto tempo leva. Chamei de GDrive.
 
-O mapa é Salvador de verdade, importado do OpenStreetMap: 21.815 cruzamentos, 3.334 km de
-vias, 7.139 ruas de mão única, 163 rotatórias e 1.573 restaurantes e lanchonetes reais, que
-vão ser as lojas da simulação.
+Fechei agora a primeira das quatro etapas, que é o mapa e o cálculo de rota.
 
-O roteador calcula a rota mais rápida, não a mais curta, usando a velocidade de cada via, e a
-chuva deixa tudo 40% mais lento. É um A* escrito do zero em Go: uma rota entre dois pontos
-aleatórios da cidade sai em 8 ms, sobre 156 mil nós. No vídeo, da Barra até Itapuã: 23
-minutos e 24 km pela Bonocô, Paralela, Jorge Amado e orla.
+O mapa é Salvador mesmo, puxado do OpenStreetMap, com umas 21 mil esquinas e todas as mãos
+únicas. O cálculo de rota eu escrevi do zero em Go. Ele busca o caminho mais rápido, e não o
+mais curto, levando em conta a velocidade de cada via. Também coloquei um botão de chuva, que
+deixa tudo mais lento. No vídeo tem uma rota da Barra até Itapuã que deu 23 minutos pela
+Bonocô, Paralela e orla, que é mais ou menos o caminho que eu faria.
 
-Como provar que está certo? A* contra Dijkstra em 1.000 grafos aleatórios e em 400 pares de
-pontos de Salvador, mão única respeitada em 200 rotas, e teste ponta a ponta no navegador.
+Algumas coisas que deram trabalho:
 
-O que o caminho ensinou:
+No começo eu tava gerando uma cidade fictícia, com centro, anel viário, rio, tudo.
+Funcionava, mas olhando o mapa não parecia cidade nenhuma. Acabei jogando fora e indo pro
+mapa real. Doeu, mas valeu.
 
-→ Comecei gerando uma cidade a partir de uma semente, com centro, anel viário, radiais, rio
-e rodovia. Funcionava e tinha testes bonitos, mas olhando o mapa não convencia ninguém.
-Joguei fora e importei a cidade real. Código descartado também é decisão de engenharia.
+O mapa real tem ilha, rua de mão única que dá num beco, erro de mapeamento... Em vez de
+"consertar" a mão única pra fechar a malha, deixei de fora os pedaços que não se conectam com
+o resto. Prefiro perder uns pontos a inventar rua.
 
-→ Mapa real não é fortemente conexo: tem ilha, rua de mão única que termina num beco, erro
-de mapeamento. A tentação é inverter a mão única para fechar a malha. Isso seria mentir
-sobre a cidade. Fica só o maior pedaço em que se chega de qualquer lugar a qualquer lugar, e
-2.845 nós saem.
+E teve um que me fez perder um bom tempo: subi tudo no Docker e o mapa aparecia em branco,
+mas os testes passavam. O nginx tava mandando um arquivo do mapa com o tipo errado e o
+navegador recusava. O teste só conferia o painel, então ajustei pra ele esperar o mapa
+carregar de verdade.
 
-→ A API pública do OpenStreetMap respondeu 406 até o cliente se identificar com um
-User-Agent próprio. API gratuita tem etiqueta.
+Próximo passo é colocar pedidos e motoboys andando por essas ruas. Vou postando aqui conforme
+for andando.
 
-→ No front, o mapa ficou em branco em produção: o nginx entregava o worker .mjs do MapLibre
-como application/octet-stream, e o navegador recusa módulo com esse tipo. O teste ponta a
-ponta passava mesmo assim, porque só olhava o painel. Agora o painel só libera o clique
-depois que a malha carregou de verdade, e conferi que, com o nginx antigo, o teste fica
-vermelho. Teste que passa com a tela quebrada não testa nada.
-
-Próxima fase: pedidos, despacho automático e entregadores andando por essas ruas.
-
-Mapa: © colaboradores do OpenStreetMap.
-
-Go · React · TypeScript · MapLibre · Docker · Playwright
+#Go #React #TypeScript #MapLibre
