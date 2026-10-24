@@ -5,6 +5,7 @@ from redis.exceptions import ResponseError
 
 from app import orders
 from app.db import transaction
+from app.monitor import TRACKED, from_tracking
 
 TRACKING_STREAM = "events.tracking"
 GROUP = "workers"
@@ -20,7 +21,8 @@ async def ensure_group(redis: Redis) -> None:
 
 
 async def handle(redis: Redis, message_id: str, fields: dict) -> None:
-    phase = PHASES.get(fields.get("type", ""))
+    kind = fields.get("type", "")
+    phase = PHASES.get(kind)
     if phase:
         data = json.loads(fields["data"])
         try:
@@ -28,6 +30,9 @@ async def handle(redis: Redis, message_id: str, fields: dict) -> None:
                 await orders.arrived(conn, int(data["order_id"]), phase)
         except orders.Conflict, orders.NotFound:
             pass
+    elif kind in TRACKED:
+        async with transaction() as conn:
+            await from_tracking(conn, kind, json.loads(fields["data"]))
     await redis.xack(TRACKING_STREAM, GROUP, message_id)
 
 

@@ -11,7 +11,10 @@ class Settings(BaseSettings):
     dispatch_retry_seconds: int = 20
     radius_steps_m: list[int] = [2000, 4000, 6000]
     unassigned_alert_seconds: int = 180
-    promise_margin_seconds: int = 300
+    promise_margin_seconds: int = 600
+    time_scale: float = 1
+    signal_lost_seconds: int = 20
+    signal_check_seconds: float = 5
 
 
 settings = Settings()

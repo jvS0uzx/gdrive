@@ -1,5 +1,6 @@
 from sqlalchemy.ext.asyncio import AsyncConnection
 
+from app import alerts
 from app.config import settings
 from app.db import one, run
 from app.events import emit
@@ -25,6 +26,8 @@ TRANSITIONS = {
 
 ACTIVE = ("a_caminho_da_loja", "na_loja", "em_rota", "no_cliente")
 CANCELLABLE = ("aguardando_loja", "em_preparo", "a_caminho_da_loja", "na_loja")
+UNASSIGNABLE = ("a_caminho_da_loja", "na_loja")
+FINAL = ("entregue", "recusado", "cancelado")
 
 
 async def transition(conn: AsyncConnection, order_id: int, expected: str | tuple[str, ...], new: str, **sets):
@@ -47,6 +50,8 @@ async def transition(conn: AsyncConnection, order_id: int, expected: str | tuple
         if current is None:
             raise NotFound("pedido não existe")
         raise Conflict(f"pedido está em {current['status']}")
+    if new in FINAL:
+        await alerts.close_all(conn, order_id)
     return row
 
 
@@ -90,7 +95,9 @@ async def endpoints(conn: AsyncConnection, store_id: int, address_id: int):
 
 
 async def create(conn: AsyncConnection, store, customer, travel_seconds: float) -> int:
-    promise = store["default_prep_minutes"] * 60 + travel_seconds + settings.promise_margin_seconds
+    promise = (
+        store["default_prep_minutes"] * 60 + travel_seconds + settings.promise_margin_seconds
+    ) / settings.time_scale
     order = await one(
         conn,
         "INSERT INTO orders (store_id, address_id, status, promised_at) VALUES "
@@ -110,6 +117,7 @@ async def create(conn: AsyncConnection, store, customer, travel_seconds: float) 
         store_id=store["id"],
     )
     await schedule(conn, "store_timeout", delay=settings.store_timeout_seconds, order_id=order["id"])
+    await schedule(conn, "late_check", delay=promise, order_id=order["id"])
     return order["id"]
 
 
@@ -219,6 +227,7 @@ async def accept_offer(conn: AsyncConnection, offer_id: int, courier_id: int | N
         store=store_point(ctx),
         customer=customer_point(ctx),
     )
+    await alerts.close_alerts(conn, offer["order_id"], ("sem_entregador",), "entregador")
     return offer["order_id"]
 
 
@@ -280,6 +289,7 @@ async def pickup(conn: AsyncConnection, order_id: int, courier_id: int) -> None:
 async def deliver(conn: AsyncConnection, order_id: int, courier_id: int) -> None:
     await assigned_to(conn, order_id, courier_id)
     await transition(conn, order_id, "no_cliente", "entregue")
+    await run(conn, "UPDATE orders SET delivered_at = now() WHERE id = :id", id=order_id)
     await set_courier_status(conn, courier_id, ("ocupado",), "livre")
     await emit(conn, order_id, "pedido_entregue", "entregador")
 
@@ -310,3 +320,42 @@ async def arrived(conn: AsyncConnection, order_id: int, phase: str) -> None:
     expected, new, kind = ARRIVALS[phase]
     await transition(conn, order_id, expected, new)
     await emit(conn, order_id, kind, "rastreio")
+    await alerts.close_alerts(conn, order_id, ("parado", "desvio"), "rastreio")
+
+
+async def unassign(conn: AsyncConnection, order_id: int, actor: str = "central") -> int:
+    current = await one(conn, "SELECT courier_id FROM orders WHERE id = :id FOR UPDATE", id=order_id)
+    if current is None:
+        raise NotFound("pedido não existe")
+    await transition(
+        conn,
+        order_id,
+        UNASSIGNABLE,
+        "em_preparo",
+        courier_id=None,
+        dispatch_radius_m=settings.radius_steps_m[0],
+    )
+    await run(conn, "UPDATE orders SET dispatch_started_at = now() WHERE id = :id", id=order_id)
+    courier = current["courier_id"]
+    await run(conn, "UPDATE couriers SET status = 'livre' WHERE id = :id AND status = 'ocupado'", id=courier)
+    await alerts.close_alerts(conn, order_id, alerts.COURIER_KINDS, actor)
+    await emit(conn, order_id, "entregador_desatribuido", actor, courier_id=courier)
+    await schedule(conn, "dispatch", order_id=order_id)
+    return courier
+
+
+async def assign(conn: AsyncConnection, order_id: int, courier_id: int, actor: str = "central") -> None:
+    if await one(conn, "SELECT 1 FROM offers WHERE courier_id = :id AND status = 'pendente'", id=courier_id):
+        raise Conflict("entregador tem uma oferta pendente")
+    await set_courier_status(conn, courier_id, ("livre",), "ocupado")
+    await transition(conn, order_id, "em_preparo", "a_caminho_da_loja", courier_id=courier_id)
+    await run(
+        conn,
+        "UPDATE offers SET status = 'expirada' WHERE order_id = :id AND status = 'pendente'",
+        id=order_id,
+    )
+    ctx = await context(conn, order_id)
+    await emit(
+        conn, order_id, "entregador_atribuido", actor, store=store_point(ctx), customer=customer_point(ctx)
+    )
+    await alerts.close_alerts(conn, order_id, ("sem_entregador",), actor)

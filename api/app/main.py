@@ -11,6 +11,7 @@ from redis.asyncio import Redis
 from app import orders
 from app.config import settings
 from app.db import loads, many, one, transaction
+from app.dispatch import free_nearby, ranking
 from app.engine import Engine
 from app.seed import seed_if_empty
 
@@ -147,6 +148,55 @@ async def order_dispatch(order_id: int):
         "order_id": order_id,
         "offers": [{**dict(o), "candidates": loads(o["candidates"])} for o in offers],
     }
+
+
+@app.get("/api/orders/{order_id}/candidates")
+async def order_candidates(order_id: int, request: Request):
+    async with transaction() as conn:
+        ctx = await orders.context(conn, order_id)
+        straight, free = await free_nearby(
+            conn,
+            request.app.state.redis,
+            ctx["store_lat"],
+            ctx["store_lon"],
+            settings.radius_steps_m[-1],
+            order_id,
+            lock=False,
+        )
+    try:
+        etas = await request.app.state.engine.etas(ctx["store_lat"], ctx["store_lon"], free) if free else []
+    except httpx.HTTPError:
+        return JSONResponse(status_code=503, content={"error": "roteador indisponível"})
+    return ranking(etas, straight)[:10]
+
+
+@app.post("/api/orders/{order_id}/assign")
+async def order_assign(order_id: int, body: CourierIn):
+    async with transaction() as conn:
+        await orders.assign(conn, order_id, body.courier_id)
+    return {"status": "a_caminho_da_loja", "courier_id": body.courier_id}
+
+
+@app.post("/api/orders/{order_id}/unassign")
+async def order_unassign(order_id: int):
+    async with transaction() as conn:
+        courier = await orders.unassign(conn, order_id)
+    return {"status": "em_preparo", "courier_id": courier}
+
+
+@app.get("/api/alerts")
+async def list_alerts(open: bool = True, limit: int = 100):
+    async with transaction() as conn:
+        rows = await many(
+            conn,
+            "SELECT a.id, a.order_id, a.courier_id, a.kind, a.detail, a.opened_at, a.closed_at, "
+            "o.status, s.name AS store_name FROM alerts a JOIN orders o ON o.id = a.order_id "
+            "JOIN stores s ON s.id = o.store_id WHERE NOT :open OR a.closed_at IS NULL "
+            "ORDER BY a.id DESC LIMIT :limit",
+            open=open,
+            limit=min(limit, 500),
+        )
+    return [{**dict(row), "detail": loads(row["detail"])} for row in rows]
 
 
 @app.post("/api/orders/{order_id}/cancel")

@@ -3,6 +3,7 @@ import math
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 os.environ.setdefault("DATABASE_URL", "postgresql+asyncpg://postgres:gdrive@localhost:55432/gdrive_test")
@@ -96,7 +97,8 @@ async def clean():
     async with transaction() as conn:
         await conn.execute(
             text(
-                "TRUNCATE jobs, outbox, offers, order_events, orders, couriers, stores, addresses RESTART IDENTITY CASCADE"
+                "TRUNCATE alerts, jobs, outbox, offers, order_events, orders, couriers, stores, addresses "
+                "RESTART IDENTITY CASCADE"
             )
         )
 
@@ -143,6 +145,9 @@ async def online(redis, client, *courier_ids):
     for courier_id in courier_ids:
         lat, lon = COURIERS[courier_id - 1]
         await redis.geoadd("geo:couriers", (lon, lat, str(courier_id)))
+        await redis.hset(
+            f"courier:{courier_id}", mapping={"lat": lat, "lon": lon, "ts": int(time.time() * 1000)}
+        )
         response = await client.post(f"/api/couriers/{courier_id}/online")
         assert response.status_code == 200, response.text
 

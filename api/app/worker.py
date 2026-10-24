@@ -11,6 +11,7 @@ from app.config import settings
 from app.dispatch import dispatch
 from app.engine import Engine
 from app.jobs import run_due
+from app.monitor import check_late, watch_signal
 from app.outbox import relay_once
 from app.tracking import consume_once, ensure_group, reclaim_once
 
@@ -25,6 +26,7 @@ def handlers(redis: Redis, engine: Engine) -> dict:
         "dispatch": run_dispatch,
         "offer_timeout": lambda conn, offer_id: orders.expire_offer(conn, offer_id),
         "store_timeout": lambda conn, order_id: orders.store_timeout(conn, order_id),
+        "late_check": check_late,
     }
 
 
@@ -58,6 +60,7 @@ async def main() -> None:
         loop("outbox", lambda: relay_once(redis), 0.1, stop),
         loop("rastreio", lambda: consume_once(redis, consumer, block_ms=1000), 0, stop),
         loop("rastreio pendente", lambda: reclaim_once(redis, consumer), 15, stop),
+        loop("sinal", lambda: watch_signal(redis), settings.signal_check_seconds, stop),
     )
     await engine.close()
     await redis.aclose()

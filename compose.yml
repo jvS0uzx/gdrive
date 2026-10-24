@@ -4,6 +4,7 @@ x-api-env: &api-env
   DATABASE_URL: postgresql+asyncpg://postgres:gdrive@db:5432/gdrive
   REDIS_URL: redis://redis:6379/0
   ENGINE_URL: http://engine:8080
+  TIME_SCALE: "${SIM_SPEED:-8}"
 
 services:
   db:

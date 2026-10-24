@@ -29,6 +29,9 @@ def side_effects(pipe: Pipeline, payload: dict) -> None:
         )
     elif kind in ("pedido_entregue", "pedido_cancelado", "entregador_desatribuido") and courier:
         pipe.delete(target_key(courier))
+    if kind == "entregador_desatribuido":
+        pipe.hdel(f"plan:{payload['order_id']}", "loja")
+        pipe.delete(f"track:{payload['order_id']}:loja")
 
 
 async def relay_once(redis: Redis, limit: int = 200) -> int:
