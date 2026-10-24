@@ -193,6 +193,7 @@ export default function Central() {
   const [zoomed, setZoomed] = useState(false);
   const cards = useRef(new Map<number, Card>());
   const latest = useRef<Snapshot | null>(null);
+  const placedRef = useRef("");
   const highlight: Selection = hovered !== null ? { kind: "order", id: hovered } : selection;
   const selectedId = selection?.kind === "order" ? selection.id : null;
 
@@ -240,6 +241,9 @@ export default function Central() {
         snapshot.couriers.map(([id, lon, lat, busy]) => point([lon, lat], { id, busy, alert: alerting.has(id) ? 1 : 0 })),
       ),
     );
+    const placedKey = placed.map((o) => `${o.id}:${o.customer ? 1 : 0}`).join(",");
+    if (placedKey === placedRef.current) return;
+    placedRef.current = placedKey;
     m.getSource<GeoJSONSource>("lojas")?.setData(collection(placed.map((o) => point(lngLat(o.store!), { id: o.id }))));
     m.getSource<GeoJSONSource>("clientes")?.setData(
       collection(placed.filter((o) => o.customer).map((o) => point(lngLat(o.customer!), { id: o.id }))),

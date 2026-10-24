@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Map as MapLibre, setWorkerUrl, type PaddingOptions } from "maplibre-gl";
 import workerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?url";
 import type { Feature, FeatureCollection, LineString, Point as GeoPoint } from "geojson";
-import { fetchMeta, fetchStreets, type CityMeta, type LngLat } from "./api";
+import { fetchMeta, type CityMeta, type LngLat } from "./api";
 
 setWorkerUrl(workerUrl);
 
@@ -85,13 +85,20 @@ function arrowImage(): ImageData {
   return ctx.getImageData(0, 0, 32, 32);
 }
 
-function addStreets(map: MapLibre, streets: FeatureCollection) {
-  map.addSource("ruas", { type: "geojson", data: streets });
+function addStreets(map: MapLibre, meta: CityMeta) {
+  map.addSource("ruas", {
+    type: "vector",
+    tiles: [new URL(meta.tiles.url, window.location.origin).href.replaceAll("%7B", "{").replaceAll("%7D", "}")],
+    minzoom: meta.tiles.minzoom,
+    maxzoom: meta.tiles.maxzoom,
+    bounds: meta.bbox,
+  });
   for (const road of ROADS) {
     map.addLayer({
       id: road.id,
       type: "line",
       source: "ruas",
+      "source-layer": meta.tiles.layer,
       filter: ["==", ["get", "class"], road.id],
       layout: { "line-cap": "round", "line-join": "round" },
       paint: { "line-color": road.color, "line-width": byZoom(road.width[0], road.width[1], road.width[2]) },
@@ -102,6 +109,7 @@ function addStreets(map: MapLibre, streets: FeatureCollection) {
     id: "mao-unica",
     type: "symbol",
     source: "ruas",
+    "source-layer": meta.tiles.layer,
     minzoom: 15.2,
     filter: ["==", ["get", "oneway"], true],
     layout: {
@@ -125,8 +133,8 @@ export function useCityMap(setup: (map: MapLibre) => void) {
     let cancelled = false;
     let instance: MapLibre | undefined;
     let observer: ResizeObserver | undefined;
-    Promise.all([fetchMeta(), fetchStreets()])
-      .then(([m, streets]) => {
+    fetchMeta()
+      .then((m) => {
         if (cancelled || !container.current) return;
         setMeta(m);
         const created = new MapLibre({
@@ -147,7 +155,7 @@ export function useCityMap(setup: (map: MapLibre) => void) {
         observer = new ResizeObserver(() => created.resize());
         observer.observe(container.current);
         created.on("load", () => {
-          addStreets(created, streets);
+          addStreets(created, m);
           setup(created);
         });
         created.on("sourcedata", (e) => {

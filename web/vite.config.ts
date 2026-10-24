@@ -14,6 +14,7 @@ export default defineConfig({
       "/city": target,
       "/route": target,
       "/journey": target,
+      "/tiles": target,
     },
   },
 });

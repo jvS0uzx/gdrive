@@ -1,4 +1,4 @@
-import type { FeatureCollection, LineString } from "geojson";
+import type { LineString } from "geojson";
 
 export type LngLat = [number, number];
 
@@ -12,6 +12,7 @@ export interface CityMeta {
   bbox: [number, number, number, number];
   speeds_kmh: Record<string, number>;
   rain_factor: number;
+  tiles: { url: string; minzoom: number; maxzoom: number; layer: string };
 }
 
 export interface RouteResult {
@@ -260,10 +261,6 @@ async function send<T>(method: "POST" | "PUT", url: string, body?: unknown): Pro
 
 export async function fetchMeta(): Promise<CityMeta> {
   return read(await fetch("/city"));
-}
-
-export async function fetchStreets(): Promise<FeatureCollection<LineString>> {
-  return read(await fetch("/city.geojson"));
 }
 
 export async function fetchRoute(from: LngLat, to: LngLat, rain: boolean, signal: AbortSignal): Promise<RouteResult> {
