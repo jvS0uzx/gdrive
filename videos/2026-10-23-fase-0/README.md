@@ -1,13 +1,8 @@
 # GDrive — gravação da fase 0 (mapa e roteador)
 
-**Arquivo:** `gdrive-fase-0.mp4`, fora do git. 1920×1080, H.264, 30 fps, 74 s, 5,2 MB.
-Gravado no Chromium, no Linux, contra a pilha do `docker compose`:
-
-```bash
-docker compose up --build -d
-cd web
-CHROMIUM_PATH=/usr/bin/chromium BASE_URL=http://localhost:8085 pnpm video ../videos/2026-10-23-fase-0/gdrive-fase-0.mp4
-```
+**Arquivo:** `gdrive-fase-0.mp4` (1920×1080, 74 s), publicado no LinkedIn em 23/10/2026. O arquivo
+e o roteiro de gravação eram do visual antigo e foram removidos em 24/10/2026, com a identidade
+nova; a fase 0 aparece regravada no vídeo 1 (`../2026-10-24-video-1-fases-0-a-2/`).
 
 **Fases cobertas:** 0. Gravação extra, pedida em 23/10/2026; o vídeo 1 (fases 0 a 2) continua
 previsto para o fim da fase 2.

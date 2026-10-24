@@ -264,7 +264,8 @@ O front usa Node 24 (há um `mise.toml`) e, em desenvolvimento, encaminha `/api`
 
 ```bash
 CHROMIUM_PATH=/usr/bin/chromium BASE_URL=http://localhost:8085 pnpm e2e
-CHROMIUM_PATH=/usr/bin/chromium BASE_URL=http://localhost:8085 pnpm demo
+GIFS=../docs/assets CHROMIUM_PATH=/usr/bin/chromium pnpm video ../videos/2026-10-24-video-1-fases-0-a-2/gdrive-video-1.mp4
+pnpm bench
 ```
 
 ## O sistema completo

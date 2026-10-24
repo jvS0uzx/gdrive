@@ -1,6 +1,8 @@
 # GDrive — gravação da fase 1 (núcleo do delivery)
 
-**Arquivo:** `gdrive-fase-1.mp4`, fora do git. 1920×1080, H.264, 30 fps, 75 s.
+**Arquivo:** `gdrive-fase-1.mp4`, fora do git. 1920×1080, H.264, 30 fps, 62 s, 12 MB. Regravado em
+24/10/2026 com a identidade nova (logo, paleta e painéis encaixados), a partir de uma viewport de
+1440×810 ampliada para 1080p.
 Gravado no Chromium, no Linux, contra a pilha do `docker compose` com o simulador rodando:
 
 ```bash

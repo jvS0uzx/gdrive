@@ -1,6 +1,6 @@
 import { chromium } from "@playwright/test";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 
@@ -72,6 +72,41 @@ async function breakTwoCouriers() {
   if (stopped) await api(`/api/sim/couriers/${stopped.courier_id}/parar`, "POST", { seconds: 150 });
 }
 
+const GIFS = {
+  "fase-0.gif": [["rota", "fase1", 1.5]],
+  "fase-1.gif": [["fase1", "loja", 2.2]],
+  "fase-2.gif": [
+    ["loja", "entregador", 4],
+    ["entregador", "alertas", 5],
+    ["alertas", "historico", 3],
+    ["historico", "fim", 2.5],
+  ],
+};
+
+function exportGifs(marks, video, dir) {
+  mkdirSync(dir, { recursive: true });
+  for (const [name, segments] of Object.entries(GIFS)) {
+    const cuts = segments.map(
+      ([from, to, speed], i) => `[0:v]trim=${marks[from].toFixed(2)}:${marks[to].toFixed(2)},setpts=(PTS-STARTPTS)/${speed}[s${i}]`,
+    );
+    const joined = segments.map((_, i) => `[s${i}]`).join("");
+    const filter = [
+      ...cuts,
+      `${joined}concat=n=${segments.length}:v=1:a=0,fps=6,scale=640:-1:flags=lanczos,split[a][b]`,
+      "[a]palettegen=max_colors=96:stats_mode=diff[p]",
+      "[b][p]paletteuse=dither=none:diff_mode=rectangle",
+    ].join(";");
+    execFileSync("ffmpeg", ["-y", "-loglevel", "error", "-i", video, "-filter_complex", filter, join(dir, name)]);
+    console.log(`GIF ${join(dir, name)}`);
+  }
+}
+
+const marksFile = output.replace(/\.mp4$/, ".cenas.json");
+if (process.env.GIFS_ONLY) {
+  exportGifs(JSON.parse(readFileSync(marksFile, "utf8")), output, resolve(process.env.GIFS_ONLY));
+  process.exit(0);
+}
+
 const pizzerias = (await get("/api/stores?q=pizza&limit=40")).filter((s) => !s.manual);
 const storeScene = pizzerias[3] ?? pizzerias[0];
 const { courier, store: courierStore } = await pickCourierAndStore();
@@ -81,6 +116,11 @@ const work = mkdtempSync(join(tmpdir(), "gdrive-video-"));
 const browser = await chromium.launch({ executablePath });
 const context = await browser.newContext({ viewport, recordVideo: { dir: work, size: viewport } });
 const page = await context.newPage();
+const startedAt = Date.now();
+const marks = {};
+const mark = (name) => {
+  marks[name] = (Date.now() - startedAt) / 1000;
+};
 const pause = (ms) => page.waitForTimeout(ms);
 
 const PLACES = {
@@ -101,10 +141,10 @@ const caption = (text, place = "center") =>
           position: "fixed",
           padding: "12px 22px",
           borderRadius: "14px",
-          background: "rgba(13,16,22,0.92)",
-          border: "1px solid rgba(255,255,255,0.12)",
-          color: "#f4f4f5",
-          font: "600 21px Inter, ui-sans-serif, system-ui, sans-serif",
+          background: "rgba(10,27,42,0.92)",
+          border: "1px solid rgba(238,242,245,0.14)",
+          color: "#eef2f5",
+          font: "600 21px 'IBM Plex Sans Variable', ui-sans-serif, system-ui, sans-serif",
           letterSpacing: "-0.01em",
           lineHeight: "1.35",
           zIndex: 60,
@@ -159,14 +199,16 @@ const wheelAt = (focus, deltaY) =>
 
 let phoneOrder = null;
 try {
+  mark("abertura");
   await page.goto(baseURL);
   await page.getByTestId("card-pedido").first().waitFor({ timeout: 60_000 });
   await pause(1200);
-  await caption("GDrive: um delivery simulado sobre o mapa real de Salvador", "map");
+  await caption("Gdrive: um delivery simulado sobre o mapa real de Salvador", "map");
   await pause(4000);
   await caption("Fases 0, 1 e 2: o mapa, o núcleo do delivery e a operação", "map");
   await pause(3500);
 
+  mark("rota");
   await page.goto(`${baseURL}/rota`);
   await page.getByText("Clique no mapa para marcar a origem.").waitFor({ timeout: 60_000 });
   await pause(800);
@@ -184,6 +226,7 @@ try {
   await pause(3500);
   await page.getByTestId("chuva").uncheck();
 
+  mark("fase1");
   await page.goto(baseURL);
   await page.getByTestId("card-pedido").first().waitFor({ timeout: 60_000 });
   await pause(800);
@@ -225,6 +268,7 @@ try {
     await page.keyboard.press("Escape");
   }
 
+  mark("loja");
   await page.goto(`${baseURL}/loja/${storeScene.id}`);
   await page.getByRole("heading", { level: 1 }).waitFor({ timeout: 30_000 });
   await caption("Fase 2 · a loja: aceita, prepara e avisa quando está pronto", "center");
@@ -259,6 +303,7 @@ try {
   await manual.uncheck();
   await pause(800);
 
+  mark("entregador");
   await breakTwoCouriers();
   await api(`/api/stores/${courierStore.id}/manual`, "PUT", { manual: true });
   await page.goto(`${baseURL}/entregador/${courier.id}?velocidade=${courierSpeed}`);
@@ -308,6 +353,7 @@ try {
   await page.getByRole("button", { name: "Ficar offline" }).click({ timeout: 10_000 }).catch(() => undefined);
   await api(`/api/stores/${courierStore.id}/manual`, "PUT", { manual: false });
 
+  mark("alertas");
   await page.goto(baseURL);
   await page.getByTestId("card-pedido").first().waitFor({ timeout: 60_000 });
   await caption("A central vigia a operação: sem sinal, parado, fora da rota, atraso", "map");
@@ -336,6 +382,7 @@ try {
   await page.getByTestId("pico-1").click();
   await pause(800);
 
+  mark("historico");
   for (let i = 0; i < 20 && phoneOrder && !(await api(`/api/orders/${phoneOrder}/track`)).ok; i++) await sleep(500);
   await page.goto(`${baseURL}/historico`);
   await page.getByTestId("tabela-historico").waitFor({ timeout: 20_000 });
@@ -346,14 +393,16 @@ try {
   else if (phoneOrder) await page.goto(`${baseURL}/historico/${phoneOrder}`);
   await page.getByTestId("mapa").and(page.locator("[data-ready=true]")).waitFor({ timeout: 30_000 });
   await caption("Replay: a rota prevista tracejada e o rastro de verdade no tempo", "map");
-  await page.getByRole("button", { name: "4×" }).click();
+  await page.getByRole("button", { name: "4×", exact: true }).click();
   await page.getByTestId("replay-play").click();
   await pause(11_000);
 
+  mark("fim");
   await page.goto(baseURL);
   await page.getByTestId("card-pedido").first().waitFor({ timeout: 60_000 });
-  await caption("GDrive · fases 0 a 2 de 4 · próxima: escala horizontal, com número", "map");
+  await caption("Gdrive · fases 0 a 2 de 4 · próxima: escala horizontal, com número", "map");
   await pause(4500);
+  mark("final");
 } finally {
   await api("/api/sim", "PUT", { rain: false, rush: 1 });
   await api(`/api/stores/${storeScene.id}/manual`, "PUT", { manual: false });
@@ -388,3 +437,6 @@ execFileSync("ffmpeg", [
 ]);
 rmSync(work, { recursive: true, force: true });
 console.log(`gravado em ${output} (entregador #${courier.id}, pedido do celular #${phoneOrder})`);
+
+writeFileSync(marksFile, JSON.stringify(marks, null, 2));
+if (process.env.GIFS) exportGifs(marks, output, resolve(process.env.GIFS));

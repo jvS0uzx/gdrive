@@ -1,14 +1,18 @@
 # GDrive — vídeo 1 (fases 0, 1 e 2)
 
-**Arquivo:** `gdrive-video-1.mp4`, fora do git. 1920×1080, H.264, 30 fps, 3 min 23 s, 16 MB.
+**Arquivo:** `gdrive-video-1.mp4`, fora do git. 1920×1080, H.264, 30 fps, 3 min 19 s, 25 MB.
+Regravado em 24/10/2026 com a identidade nova e a malha em blocos vetoriais.
 Gravado no Chromium, no Linux, com viewport de 1440×810 ampliado para 1080p (o texto fica
 legível no celular), contra a pilha do `docker compose` com o simulador rodando:
 
 ```bash
 docker compose up --build -d
 cd web
-CHROMIUM_PATH=/usr/bin/chromium BASE_URL=http://localhost:8085 node scripts/record-video-1.mjs ../videos/2026-10-24-video-1-fases-0-a-2/gdrive-video-1.mp4
+GIFS=../docs/assets CHROMIUM_PATH=/usr/bin/chromium BASE_URL=http://localhost:8085 node scripts/record-video-1.mjs ../videos/2026-10-24-video-1-fases-0-a-2/gdrive-video-1.mp4
 ```
+
+Com `GIFS`, o roteiro também recorta os três GIFs do README a partir das marcas de cada cena,
+salvas em `gdrive-video-1.cenas.json`. `GIFS_ONLY=../docs/assets` refaz só os GIFs, sem gravar.
 
 **Fases cobertas:** 0, 1 e 2, conforme a regra de um vídeo a cada três fases. O próximo é só
 da fase 3.
