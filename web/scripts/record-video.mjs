@@ -80,7 +80,7 @@ const click = async (point) => {
   await page.mouse.click(p.x, p.y);
 };
 
-await page.goto(baseURL);
+await page.goto(`${baseURL}/rota`);
 await page.getByText("Clique no mapa para marcar a origem.").waitFor({ timeout: 60_000 });
 await pause(800);
 await caption("Salvador de verdade: 21.815 cruzamentos do OpenStreetMap");

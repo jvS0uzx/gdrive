@@ -1,0 +1,155 @@
+import { useEffect, useRef, useState } from "react";
+import { Map as MapLibre, setWorkerUrl, type PaddingOptions } from "maplibre-gl";
+import workerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?url";
+import type { Feature, FeatureCollection, LineString, Point as GeoPoint } from "geojson";
+import { fetchMeta, fetchStreets, type CityMeta, type LngLat } from "./api";
+
+setWorkerUrl(workerUrl);
+
+export const COLORS = {
+  ink: "#0d1016",
+  arrow: "#9aa4b2",
+  route: "#ffb020",
+  origin: "#3ddc84",
+  target: "#ff5d5d",
+  free: "#3ddc84",
+  busy: "#ffb020",
+  store: "#a78bfa",
+  customer: "#38bdf8",
+  storeDot: "#71717a",
+  customerDot: "#a1a1aa",
+  highlight: "#f4f4f5",
+};
+
+export const ROADS = [
+  { id: "travessa", label: "Travessa", color: "#2a313b", width: [0.3, 0.9, 3] },
+  { id: "rua", label: "Rua", color: "#3a424f", width: [0.4, 1.2, 4] },
+  { id: "coletora", label: "Coletora", color: "#555f6e", width: [0.7, 1.8, 5.5] },
+  { id: "avenida", label: "Avenida", color: "#7d8798", width: [1.1, 2.6, 8] },
+  { id: "expressa", label: "Via expressa", color: "#a89870", width: [1.6, 3.4, 10] },
+] as const;
+
+export const EMPTY: FeatureCollection = { type: "FeatureCollection", features: [] };
+
+export function byZoom(z11: number, z14: number, z17: number): number {
+  return ["interpolate", ["linear"], ["zoom"], 11, z11, 14, z14, 17, z17] as unknown as number;
+}
+
+export function point(at: LngLat, properties: Record<string, unknown> = {}): Feature<GeoPoint> {
+  return { type: "Feature", geometry: { type: "Point", coordinates: at }, properties };
+}
+
+export function line(coordinates: LngLat[], properties: Record<string, unknown> = {}): Feature<LineString> {
+  return { type: "Feature", geometry: { type: "LineString", coordinates }, properties };
+}
+
+export function collection(features: Feature[]): FeatureCollection {
+  return { type: "FeatureCollection", features };
+}
+
+export function panelPadding(margin = 32): PaddingOptions | number {
+  return window.innerWidth > 900 ? { top: margin, bottom: margin, right: margin, left: 368 + margin } : margin;
+}
+
+export function pin(content: string, color: string): HTMLElement {
+  const el = document.createElement("div");
+  el.className = "grid size-7 place-items-center rounded-full text-xs font-bold text-ink shadow-lg ring-2 ring-ink";
+  el.style.background = color;
+  el.innerHTML = content;
+  return el;
+}
+
+function arrowImage(): ImageData {
+  const canvas = document.createElement("canvas");
+  canvas.width = canvas.height = 32;
+  const ctx = canvas.getContext("2d")!;
+  ctx.strokeStyle = COLORS.arrow;
+  ctx.lineWidth = 3.5;
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  ctx.beginPath();
+  ctx.moveTo(11, 8);
+  ctx.lineTo(21, 16);
+  ctx.lineTo(11, 24);
+  ctx.stroke();
+  return ctx.getImageData(0, 0, 32, 32);
+}
+
+function addStreets(map: MapLibre, streets: FeatureCollection) {
+  map.addSource("ruas", { type: "geojson", data: streets });
+  for (const road of ROADS) {
+    map.addLayer({
+      id: road.id,
+      type: "line",
+      source: "ruas",
+      filter: ["==", ["get", "class"], road.id],
+      layout: { "line-cap": "round", "line-join": "round" },
+      paint: { "line-color": road.color, "line-width": byZoom(road.width[0], road.width[1], road.width[2]) },
+    });
+  }
+  map.addImage("mao-unica", arrowImage(), { pixelRatio: 2 });
+  map.addLayer({
+    id: "mao-unica",
+    type: "symbol",
+    source: "ruas",
+    minzoom: 15.2,
+    filter: ["==", ["get", "oneway"], true],
+    layout: {
+      "symbol-placement": "line-center",
+      "icon-image": "mao-unica",
+      "icon-rotation-alignment": "map",
+      "icon-allow-overlap": true,
+      "icon-size": 0.85,
+    },
+  });
+}
+
+export function useCityMap(setup: (map: MapLibre) => void) {
+  const container = useRef<HTMLDivElement>(null);
+  const map = useRef<MapLibre | null>(null);
+  const [meta, setMeta] = useState<CityMeta | null>(null);
+  const [ready, setReady] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    let instance: MapLibre | undefined;
+    Promise.all([fetchMeta(), fetchStreets()])
+      .then(([m, streets]) => {
+        if (cancelled || !container.current) return;
+        setMeta(m);
+        const created = new MapLibre({
+          container: container.current,
+          style: {
+            version: 8,
+            sources: {},
+            layers: [{ id: "fundo", type: "background", paint: { "background-color": COLORS.ink } }],
+          },
+          bounds: m.bbox,
+          fitBoundsOptions: { padding: panelPadding() },
+          attributionControl: false,
+          dragRotate: false,
+          maxZoom: 18,
+        });
+        instance = created;
+        map.current = created;
+        created.on("load", () => {
+          addStreets(created, streets);
+          setup(created);
+        });
+        created.on("sourcedata", (e) => {
+          if (e.sourceId === "ruas" && e.isSourceLoaded) setReady(true);
+        });
+      })
+      .catch((err: Error) => {
+        if (!cancelled) setError(`A cidade não carregou: ${err.message}`);
+      });
+    return () => {
+      cancelled = true;
+      instance?.remove();
+      map.current = null;
+    };
+  }, []);
+
+  return { container, map, meta, ready, error };
+}

@@ -20,7 +20,7 @@ const shot = async (name) => {
   if (shots) await page.screenshot({ path: join(shots, `${name}.png`) });
 };
 
-await page.goto(baseURL);
+await page.goto(`${baseURL}/rota`);
 await page.getByText("Clique no mapa para marcar a origem.").waitFor({ timeout: 30_000 });
 await pause(1500);
 await shot("1-cidade");

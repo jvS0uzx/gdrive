@@ -8,7 +8,7 @@ function toSeconds(text: string): number {
 }
 
 test("traça a rota mais rápida entre dois cliques e a chuva deixa a rota mais lenta", async ({ page }) => {
-  await page.goto("/");
+  await page.goto("/rota");
   await expect(page.getByText("Clique no mapa para marcar a origem.")).toBeVisible({ timeout: 20_000 });
 
   const map = page.getByTestId("mapa");
@@ -31,7 +31,7 @@ test("traça a rota mais rápida entre dois cliques e a chuva deixa a rota mais 
 });
 
 test("clique fora da cidade avisa em vez de inventar rota", async ({ page }) => {
-  await page.goto("/");
+  await page.goto("/rota");
   await expect(page.getByText("Clique no mapa para marcar a origem.")).toBeVisible({ timeout: 20_000 });
   const map = page.getByTestId("mapa");
   const box = await map.boundingBox();

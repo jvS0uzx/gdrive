@@ -2,15 +2,17 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 
-const engine = process.env.ENGINE_URL ?? "http://localhost:8086";
+const target = process.env.GDRIVE_URL ?? "http://localhost:8085";
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   build: { chunkSizeWarningLimit: 1500 },
   server: {
     proxy: {
-      "/city": engine,
-      "/route": engine,
+      "/api": target,
+      "/ws": { target, ws: true },
+      "/city": target,
+      "/route": target,
     },
   },
 });

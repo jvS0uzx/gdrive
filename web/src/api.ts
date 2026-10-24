@@ -25,6 +25,49 @@ export interface RouteResult {
   cumulative_seconds: number[];
 }
 
+export interface Point {
+  lat: number;
+  lon: number;
+}
+
+export interface LiveOrder {
+  id: number;
+  status: string;
+  version: number;
+  store?: Point;
+  customer?: Point;
+  store_name?: string;
+  courier_id?: number;
+}
+
+export interface Stats {
+  orders: Record<string, number>;
+  couriers: Record<string, number>;
+  delivered: number;
+  avg_delivery_seconds: number | null;
+}
+
+export interface TimelineEntry {
+  type: string;
+  status: string;
+  actor: string;
+  at: string;
+}
+
+export interface OrderDetail {
+  id: number;
+  status: string;
+  version: number;
+  store: Point & { id: number; name: string };
+  customer: Point;
+  courier: { id: number; name: string } | null;
+  prep_minutes: number | null;
+  ready_at: string | null;
+  promised_at: string | null;
+  created_at: string;
+  timeline: TimelineEntry[];
+}
+
 async function read<T>(res: Response): Promise<T> {
   const body = await res.json().catch(() => ({}));
   if (!res.ok) {
@@ -52,5 +95,15 @@ export async function fetchRoute(from: LngLat, to: LngLat, rain: boolean, signal
     }),
     signal,
   });
+  return read(res);
+}
+
+export async function fetchStats(): Promise<Stats> {
+  return read(await fetch("/api/stats"));
+}
+
+export async function fetchOrder(id: number): Promise<OrderDetail | null> {
+  const res = await fetch(`/api/orders/${id}`);
+  if (res.status === 404) return null;
   return read(res);
 }
