@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -18,6 +19,7 @@ import (
 	"github.com/jvS0uzx/gdrive/engine/internal/city"
 	"github.com/jvS0uzx/gdrive/engine/internal/live"
 	"github.com/jvS0uzx/gdrive/engine/internal/route"
+	"github.com/jvS0uzx/gdrive/engine/internal/tiles"
 )
 
 func gridCity(t *testing.T) *city.City {
@@ -291,5 +293,54 @@ func TestAlternativasDeRota(t *testing.T) {
 	}
 	if _, ok := out["no_expressway"]; !ok {
 		t.Fatal("faltou a chave no_expressway")
+	}
+}
+
+func TestBlocosVetoriaisDaMalha(t *testing.T) {
+	ts, c := newTestServer(t)
+	resp, err := http.Get(ts.URL + "/city")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var meta struct {
+		Tiles struct {
+			URL     string `json:"url"`
+			MinZoom int    `json:"minzoom"`
+			MaxZoom int    `json:"maxzoom"`
+		} `json:"tiles"`
+	}
+	err = json.NewDecoder(resp.Body).Decode(&meta)
+	resp.Body.Close()
+	if err != nil || !strings.HasPrefix(meta.Tiles.URL, "/tiles/{z}/{x}/{y}.pbf?v=") || meta.Tiles.MinZoom != 9 || meta.Tiles.MaxZoom != 14 {
+		t.Fatalf("meta dos blocos: %+v (%v)", meta.Tiles, err)
+	}
+	b := c.Bounds()
+	k := tiles.TileOf((b[0]+b[2])/2, (b[1]+b[3])/2, 14)
+	url := strings.NewReplacer("{z}", "14", "{x}", strconv.Itoa(k.X), "{y}", strconv.Itoa(k.Y)).Replace(meta.Tiles.URL)
+	resp, err = http.Get(ts.URL + url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK || resp.Header.Get("Content-Type") != "application/vnd.mapbox-vector-tile" || len(body) == 0 {
+		t.Fatalf("bloco do centro: %d %q %d bytes", resp.StatusCode, resp.Header.Get("Content-Type"), len(body))
+	}
+	if cc := resp.Header.Get("Cache-Control"); !strings.Contains(cc, "immutable") {
+		t.Fatalf("bloco versionado sem cache longo: %q", cc)
+	}
+	for path, want := range map[string]int{
+		"/tiles/15/0/0.pbf":                            http.StatusNotFound,
+		"/tiles/14/x/1.pbf":                            http.StatusBadRequest,
+		"/tiles/14/" + strconv.Itoa(k.X+40) + "/1.pbf": http.StatusOK,
+	} {
+		resp, err := http.Get(ts.URL + path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != want {
+			t.Fatalf("%s: %d, esperado %d", path, resp.StatusCode, want)
+		}
 	}
 }

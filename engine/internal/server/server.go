@@ -8,10 +8,13 @@ import (
 	"math"
 	"net/http"
 	"slices"
+	"strconv"
+	"strings"
 
 	"github.com/jvS0uzx/gdrive/engine/internal/city"
 	"github.com/jvS0uzx/gdrive/engine/internal/live"
 	"github.com/jvS0uzx/gdrive/engine/internal/route"
+	"github.com/jvS0uzx/gdrive/engine/internal/tiles"
 )
 
 const (
@@ -26,6 +29,7 @@ type Server struct {
 	geojson   []byte
 	meta      []byte
 	addresses []byte
+	pyramid   *tiles.Pyramid
 	hub       *live.Hub
 	log       *slog.Logger
 }
@@ -88,6 +92,17 @@ func New(c *city.City, g *route.Graph, hub *live.Hub, log *slog.Logger) (*Server
 	if err != nil {
 		return nil, err
 	}
+	lines := make([]tiles.Line, len(c.Ways))
+	for i, w := range c.Ways {
+		points := make([]tiles.Point, len(w.Nodes))
+		for j, n := range w.Nodes {
+			p := c.Point(n)
+			points[j] = tiles.Point{X: p[0], Y: p[1]}
+		}
+		lines[i] = tiles.Line{Points: points, Class: w.Class.String(), OneWay: w.OneWay}
+	}
+	pyramid := tiles.Build(lines)
+	go pyramid.Warm()
 	speeds := map[string]float64{}
 	for _, cl := range city.Classes {
 		speeds[cl.String()] = cl.DefaultKMH()
@@ -115,6 +130,12 @@ func New(c *city.City, g *route.Graph, hub *live.Hub, log *slog.Logger) (*Server
 		"bbox":        c.Bounds(),
 		"speeds_kmh":  speeds,
 		"rain_factor": rainFactor,
+		"tiles": map[string]any{
+			"url":     "/tiles/{z}/{x}/{y}.pbf?v=" + pyramid.Version,
+			"minzoom": tiles.MinZoom,
+			"maxzoom": tiles.MaxZoom,
+			"layer":   tiles.Layer,
+		},
 	})
 	if err != nil {
 		return nil, err
@@ -123,7 +144,7 @@ func New(c *city.City, g *route.Graph, hub *live.Hub, log *slog.Logger) (*Server
 	if err != nil {
 		return nil, err
 	}
-	return &Server{city: c, graph: g, geojson: geojson, meta: meta, addresses: addresses, hub: hub, log: log}, nil
+	return &Server{city: c, graph: g, geojson: geojson, meta: meta, addresses: addresses, pyramid: pyramid, hub: hub, log: log}, nil
 }
 
 func (s *Server) Handler() http.Handler {
@@ -144,6 +165,7 @@ func (s *Server) Handler() http.Handler {
 		w.Header().Set("Content-Type", "application/json")
 		w.Write(s.addresses)
 	})
+	mux.HandleFunc("GET /tiles/{z}/{x}/{y}", s.tile)
 	mux.HandleFunc("POST /route", s.route)
 	mux.HandleFunc("POST /route/alternatives", s.alternatives)
 	if s.hub != nil {
@@ -154,6 +176,28 @@ func (s *Server) Handler() http.Handler {
 		mux.HandleFunc("GET /journey/{id}", s.hub.ServeJourney)
 	}
 	return mux
+}
+
+func (s *Server) tile(w http.ResponseWriter, r *http.Request) {
+	z, errZ := strconv.Atoi(r.PathValue("z"))
+	x, errX := strconv.Atoi(r.PathValue("x"))
+	y, errY := strconv.Atoi(strings.TrimSuffix(r.PathValue("y"), ".pbf"))
+	if errZ != nil || errX != nil || errY != nil {
+		http.Error(w, "bloco inválido", http.StatusBadRequest)
+		return
+	}
+	data, ok := s.pyramid.Tile(tiles.Key{Z: z, X: x, Y: y})
+	if !ok {
+		http.Error(w, "zoom fora da pirâmide", http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Content-Type", "application/vnd.mapbox-vector-tile")
+	if r.URL.Query().Get("v") == s.pyramid.Version {
+		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+	} else {
+		w.Header().Set("Cache-Control", "public, max-age=300")
+	}
+	w.Write(data)
 }
 
 func (s *Server) snap(p point) (int32, error) {
