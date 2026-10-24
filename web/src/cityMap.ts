@@ -7,28 +7,28 @@ import { fetchMeta, fetchStreets, type CityMeta, type LngLat } from "./api";
 setWorkerUrl(workerUrl);
 
 export const COLORS = {
-  ink: "#0e1115",
-  arrow: "#9aa2ac",
-  route: "#eea83a",
+  ink: "#0a1b2a",
+  arrow: "#8ea3b5",
+  route: "#00add8",
   origin: "#4cc38a",
   target: "#ec6a5e",
-  free: "#4cc38a",
-  busy: "#eea83a",
-  store: "#b39cf0",
-  customer: "#62b0e8",
-  shortest: "#e7e9ec",
-  noExpressway: "#45c7b4",
-  storeDot: "#727a84",
-  customerDot: "#9aa2ac",
-  highlight: "#e7e9ec",
+  free: "#a9bccb",
+  busy: "#00add8",
+  store: "#a993e6",
+  customer: "#4cc38a",
+  shortest: "#eef2f5",
+  noExpressway: "#e3c45c",
+  storeDot: "#7890a4",
+  customerDot: "#a9bccb",
+  highlight: "#eef2f5",
 };
 
 export const ROADS = [
-  { id: "travessa", label: "Travessa", color: "#252b33", width: [0.3, 0.9, 3] },
-  { id: "rua", label: "Rua", color: "#343b45", width: [0.4, 1.2, 4] },
-  { id: "coletora", label: "Coletora", color: "#4b545f", width: [0.7, 1.8, 5.5] },
-  { id: "avenida", label: "Avenida", color: "#6f7986", width: [1.1, 2.6, 8] },
-  { id: "expressa", label: "Via expressa", color: "#9a8a62", width: [1.6, 3.4, 10] },
+  { id: "travessa", label: "Travessa", color: "#122a40", width: [0.3, 0.9, 3] },
+  { id: "rua", label: "Rua", color: "#18324c", width: [0.4, 1.2, 4] },
+  { id: "coletora", label: "Coletora", color: "#23425f", width: [0.7, 1.8, 5.5] },
+  { id: "avenida", label: "Avenida", color: "#335978", width: [1.1, 2.6, 8] },
+  { id: "expressa", label: "Via expressa", color: "#5d809f", width: [1.6, 3.4, 10] },
 ] as const;
 
 export const EMPTY: FeatureCollection = { type: "FeatureCollection", features: [] };

@@ -65,24 +65,24 @@ const ACTOR_LABELS: Record<string, string> = {
 };
 
 const STATUS_TONES: Record<string, string> = {
-  aguardando_loja: "text-[#c3c9d1]",
-  em_preparo: "text-[#b39cf0]",
-  a_caminho_da_loja: "text-[#e2c15a]",
-  na_loja: "text-[#e59560]",
-  em_rota: "text-[#62b0e8]",
-  no_cliente: "text-[#e08ab3]",
+  aguardando_loja: "text-[#c5d2dd]",
+  em_preparo: "text-[#a993e6]",
+  a_caminho_da_loja: "text-[#e3c45c]",
+  na_loja: "text-[#e8935c]",
+  em_rota: "text-[#4cc38a]",
+  no_cliente: "text-[#e58ab8]",
   entregue: "text-origin",
   recusado: "text-target",
   cancelado: "text-target",
 };
 
 const STATUS_FILLS: Record<string, string> = {
-  aguardando_loja: "bg-[#c3c9d1]",
-  em_preparo: "bg-[#b39cf0]",
-  a_caminho_da_loja: "bg-[#e2c15a]",
-  na_loja: "bg-[#e59560]",
-  em_rota: "bg-[#62b0e8]",
-  no_cliente: "bg-[#e08ab3]",
+  aguardando_loja: "bg-[#c5d2dd]",
+  em_preparo: "bg-[#a993e6]",
+  a_caminho_da_loja: "bg-[#e3c45c]",
+  na_loja: "bg-[#e8935c]",
+  em_rota: "bg-[#4cc38a]",
+  no_cliente: "bg-[#e58ab8]",
 };
 
 const readable = (code: string) => code.replaceAll("_", " ");

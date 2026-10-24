@@ -77,7 +77,7 @@ function prepOptions(fallback: number): number[] {
 }
 
 const toggle =
-  "relative h-5 w-9 shrink-0 cursor-pointer appearance-none rounded-full bg-line transition-colors before:absolute before:left-0.5 before:top-0.5 before:size-4 before:rounded-full before:bg-muted before:transition-transform checked:bg-strong checked:before:translate-x-4 checked:before:bg-ink disabled:cursor-not-allowed disabled:opacity-50";
+  "switch";
 
 interface CardProps {
   order: StoreOrder;

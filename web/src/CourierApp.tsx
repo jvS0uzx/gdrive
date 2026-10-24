@@ -205,7 +205,7 @@ const big = "btn h-12 w-full rounded-lg text-[15px]";
 const bigPrimary = `${big} btn-primary`;
 
 const toggle =
-  "relative h-5 w-9 shrink-0 cursor-pointer appearance-none rounded-full bg-line transition-colors before:absolute before:left-0.5 before:top-0.5 before:size-4 before:rounded-full before:bg-muted before:transition-transform checked:bg-strong checked:before:translate-x-4 checked:before:bg-ink disabled:cursor-not-allowed disabled:opacity-50";
+  "switch";
 
 const frame =
   "flex h-full w-full flex-col overflow-hidden bg-panel sm:w-[24.5rem] sm:rounded-[2.25rem] sm:border-[7px] sm:border-raised sm:ring-1 sm:ring-line";
@@ -466,7 +466,7 @@ export default function CourierApp({ id }: { id: number }) {
           <div className="min-w-0">
             <h1 className="truncate text-[17px] font-semibold tracking-tight">{courier?.name ?? "Carregando…"}</h1>
             <p
-              className={`mt-0.5 text-xs ${online ? (connected ? "text-muted" : "text-route") : "text-target"}`}
+              className={`mt-0.5 text-xs ${online ? (connected ? "text-muted" : "text-warn") : "text-target"}`}
               data-testid="conexao"
               aria-live="polite"
             >

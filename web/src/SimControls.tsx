@@ -81,7 +81,7 @@ export default function SimControls({ liveRain }: { liveRain: boolean | undefine
           aria-pressed={rain}
           data-testid="chuva"
           title="Chuva deixa todo trajeto 40% mais lento"
-          className={`btn ${rain ? "border-sky-400/50 bg-sky-400/10 text-sky-200 hover:bg-sky-400/15" : ""}`}
+          className={`btn ${rain ? "border-deep bg-deep/25 text-strong hover:bg-deep/35" : ""}`}
         >
           {rain ? "Chovendo" : "Sem chuva"}
         </button>

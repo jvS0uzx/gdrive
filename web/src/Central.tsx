@@ -396,7 +396,7 @@ export default function Central() {
         <aside className="dock flex flex-col border-t md:order-1 md:w-[21rem] md:shrink-0 md:overflow-y-auto md:border-r md:border-t-0">
           <header className="flex items-baseline justify-between gap-3 px-4 pb-3 pt-4">
             <h1 className="text-[15px] font-semibold tracking-tight">Central</h1>
-            <p className={`text-xs ${connected ? "text-muted" : "text-route"}`} aria-live="polite">
+            <p className={`text-xs ${connected ? "text-muted" : "text-warn"}`} aria-live="polite">
               {connected ? "ao vivo" : "reconectando…"}
             </p>
           </header>

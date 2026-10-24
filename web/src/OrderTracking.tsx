@@ -195,7 +195,7 @@ export default function OrderTracking({ id }: { id: number }) {
               Pedido <span className="mono">#{id}</span>
             </p>
             {!missing && (
-              <p className={`text-xs ${connected ? "text-muted" : "text-route"}`} aria-live="polite">
+              <p className={`text-xs ${connected ? "text-muted" : "text-warn"}`} aria-live="polite">
                 {connected ? "ao vivo" : "reconectando…"}
               </p>
             )}

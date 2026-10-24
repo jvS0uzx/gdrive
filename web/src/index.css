@@ -10,14 +10,16 @@
   --font-sans: "IBM Plex Sans Variable", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, monospace;
   --font-brand: "Manrope", ui-sans-serif, system-ui, sans-serif;
-  --color-ink: #0e1115;
-  --color-panel: #14181d;
-  --color-raised: #1b2027;
-  --color-line: #262c34;
-  --color-strong: #e7e9ec;
-  --color-muted: #9aa2ac;
-  --color-faint: #6b737d;
-  --color-route: #eea83a;
+  --color-ink: #0a1b2a;
+  --color-panel: #0e2234;
+  --color-raised: #142b40;
+  --color-line: #1d364c;
+  --color-strong: #eef2f5;
+  --color-muted: #9fb3c3;
+  --color-faint: #668096;
+  --color-route: #00add8;
+  --color-deep: #0b7fa3;
+  --color-warn: #e3c45c;
   --color-origin: #4cc38a;
   --color-target: #ec6a5e;
 }
@@ -93,8 +95,8 @@ textarea:focus-visible {
     border-color 150ms,
     transform 100ms;
   &:hover:not(:disabled) {
-    background: #222832;
-    border-color: #323a44;
+    background: #1a3349;
+    border-color: #2a4760;
   }
   &:active:not(:disabled) {
     transform: translateY(1px);
@@ -111,8 +113,8 @@ textarea:focus-visible {
   color: var(--color-ink);
   font-weight: 600;
   &:hover:not(:disabled) {
-    background: #f5b552;
-    border-color: #f5b552;
+    background: #1fbce3;
+    border-color: #1fbce3;
   }
 }
 
@@ -134,6 +136,42 @@ textarea:focus-visible {
   transition: text-decoration-color 150ms;
   &:hover {
     text-decoration-color: var(--color-strong);
+  }
+}
+
+@utility switch {
+  position: relative;
+  height: 1.25rem;
+  width: 2.25rem;
+  flex-shrink: 0;
+  cursor: pointer;
+  appearance: none;
+  border-radius: 9999px;
+  background: var(--color-line);
+  transition: background-color 150ms;
+  &::before {
+    content: "";
+    position: absolute;
+    left: 0.125rem;
+    top: 0.125rem;
+    width: 1rem;
+    height: 1rem;
+    border-radius: 9999px;
+    background: var(--color-muted);
+    transition:
+      transform 150ms,
+      background-color 150ms;
+  }
+  &:checked {
+    background: var(--color-route);
+  }
+  &:checked::before {
+    transform: translateX(1rem);
+    background: var(--color-ink);
+  }
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
   }
 }
 
