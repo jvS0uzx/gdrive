@@ -98,7 +98,22 @@ async def test_entrega_grava_o_trajeto_para_o_historico(client, city, redis, job
     assert page["total"] == 1
     item = page["items"][0]
     assert item["id"] == order and item["store_name"] == "Acarajé da Dinha" and item["late"] is False
+    assert item["courier_name"] == "Entregador 1" and track["courier_name"] == "Entregador 1"
     assert item["meters"] > 1000 and item["seconds"] >= 0 and item["alerts"] == 0
     async with transaction() as conn:
         saved = await one(conn, "SELECT count(*) AS n FROM tracks WHERE order_id = :id", id=order)
     assert saved["n"] == 2
+
+
+async def test_ficar_offline_com_oferta_pendente_passa_a_corrida_adiante(client, city, redis, jobs):
+    await online(redis, client, 1, 2)
+    order = await create(client, city)
+    await client.post(f"/api/stores/1/orders/{order}/accept", json={"prep_minutes": 5})
+    await jobs()
+    first = await offer_of(order)
+    assert first["courier_id"] == 1
+    assert (await client.post("/api/couriers/1/offline")).status_code == 200
+    assert (await offer_of(order))["status"] == "expirada"
+    await jobs()
+    second = await offer_of(order)
+    assert second["courier_id"] == 2 and second["status"] == "pendente"

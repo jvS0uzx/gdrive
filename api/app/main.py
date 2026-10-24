@@ -513,11 +513,13 @@ async def history(limit: int = 50, offset: int = 0):
         total = await one(conn, "SELECT count(*) AS n FROM orders WHERE status = 'entregue'")
         rows = await many(
             conn,
-            "SELECT o.id, s.name AS store_name, o.courier_id, o.created_at, o.delivered_at, o.promised_at, "
+            "SELECT o.id, s.name AS store_name, o.courier_id, c.name AS courier_name, o.created_at, "
+            "o.delivered_at, o.promised_at, "
             "extract(epoch FROM o.delivered_at - o.created_at) AS seconds, o.delivered_at > o.promised_at AS late, "
             "(SELECT sum(t.meters) FROM tracks t WHERE t.order_id = o.id) AS meters, "
             "(SELECT count(*) FROM alerts a WHERE a.order_id = o.id) AS alerts "
-            "FROM orders o JOIN stores s ON s.id = o.store_id WHERE o.status = 'entregue' "
+            "FROM orders o JOIN stores s ON s.id = o.store_id LEFT JOIN couriers c ON c.id = o.courier_id "
+            "WHERE o.status = 'entregue' "
             "ORDER BY o.delivered_at DESC NULLS LAST, o.id DESC LIMIT :limit OFFSET :offset",
             limit=min(limit, 200),
             offset=offset,
@@ -540,6 +542,11 @@ async def order_track(order_id: int):
         found = await legs(conn, order_id)
         if not found:
             raise orders.NotFound("trajeto ainda não gravado")
+        courier = (
+            await one(conn, "SELECT name FROM couriers WHERE id = :id", id=ctx["courier_id"])
+            if ctx["courier_id"]
+            else None
+        )
         timeline = await many(
             conn,
             "SELECT type, status, actor, at FROM order_events WHERE order_id = :id ORDER BY id",
@@ -556,6 +563,7 @@ async def order_track(order_id: int):
         "store": {"id": ctx["store_id"], "name": ctx["store_name"], **orders.store_point(ctx)},
         "customer": orders.customer_point(ctx),
         "courier_id": ctx["courier_id"],
+        "courier_name": courier["name"] if courier else None,
         "created_at": ctx["created_at"],
         "promised_at": ctx["promised_at"],
         "delivered_at": ctx["delivered_at"],

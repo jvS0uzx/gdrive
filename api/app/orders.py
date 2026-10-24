@@ -193,6 +193,11 @@ async def go_online(conn: AsyncConnection, courier_id: int) -> None:
 
 async def go_offline(conn: AsyncConnection, courier_id: int) -> None:
     await set_courier_status(conn, courier_id, ("offline", "livre"), "offline")
+    pending = await one(
+        conn, "SELECT id FROM offers WHERE courier_id = :id AND status = 'pendente'", id=courier_id
+    )
+    if pending is not None:
+        await expire_offer(conn, pending["id"])
 
 
 async def pending_offer(conn: AsyncConnection, offer_id: int, courier_id: int | None):
