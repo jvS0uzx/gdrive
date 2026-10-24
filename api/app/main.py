@@ -10,7 +10,7 @@ from redis.asyncio import Redis
 
 from app import orders
 from app.config import settings
-from app.db import many, one, transaction
+from app.db import loads, many, one, transaction
 from app.engine import Engine
 from app.seed import seed_if_empty
 
@@ -130,6 +130,22 @@ async def get_order(order_id: int):
         "promised_at": ctx["promised_at"],
         "created_at": ctx["created_at"],
         "timeline": [dict(row) for row in timeline],
+    }
+
+
+@app.get("/api/orders/{order_id}/dispatch")
+async def order_dispatch(order_id: int):
+    async with transaction() as conn:
+        await orders.context(conn, order_id)
+        offers = await many(
+            conn,
+            "SELECT id, courier_id, status, radius_m, eta_seconds, candidates, created_at, expires_at "
+            "FROM offers WHERE order_id = :id ORDER BY id",
+            id=order_id,
+        )
+    return {
+        "order_id": order_id,
+        "offers": [{**dict(o), "candidates": loads(o["candidates"])} for o in offers],
     }
 
 

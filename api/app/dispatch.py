@@ -1,3 +1,5 @@
+import json
+
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncConnection
 
@@ -25,9 +27,18 @@ async def dispatch(conn: AsyncConnection, order_id: int, redis: Redis, engine) -
         return "ignorado"
 
     radius = order["dispatch_radius_m"]
-    nearby = await redis.geosearch(
-        GEO_KEY, longitude=order["lon"], latitude=order["lat"], radius=radius, unit="m", sort="ASC", count=50
+    found = await redis.geosearch(
+        GEO_KEY,
+        longitude=order["lon"],
+        latitude=order["lat"],
+        radius=radius,
+        unit="m",
+        sort="ASC",
+        count=50,
+        withdist=True,
     )
+    straight = {int(member): float(distance) for member, distance in found}
+    nearby = list(straight)
     free: list[int] = []
     if nearby:
         rows = await many(
@@ -36,23 +47,30 @@ async def dispatch(conn: AsyncConnection, order_id: int, redis: Redis, engine) -
             "AND NOT EXISTS (SELECT 1 FROM offers f WHERE f.courier_id = c.id AND (f.status = 'pendente' "
             "OR (f.order_id = :order AND f.status IN ('recusada', 'expirada')))) "
             "ORDER BY c.id FOR UPDATE OF c SKIP LOCKED",
-            ids=[int(member) for member in nearby],
+            ids=nearby,
             order=order_id,
         )
         free = [row["id"] for row in rows]
 
     etas = await engine.etas(order["lat"], order["lon"], free) if free else []
     if etas:
-        courier, seconds = min(etas, key=lambda item: (item[1], item[0]))
+        ranked = sorted(etas, key=lambda item: (item[1], item[0]))
+        courier, seconds = ranked[0]
+        candidates = [
+            {"courier_id": c, "eta_seconds": round(s, 1), "distance_m": round(straight.get(c, 0.0))}
+            for c, s in ranked
+        ]
         offer = await one(
             conn,
-            "INSERT INTO offers (order_id, courier_id, radius_m, eta_seconds, expires_at) VALUES "
-            "(:order, :courier, :radius, :seconds, now() + make_interval(secs => :ttl)) RETURNING id",
+            "INSERT INTO offers (order_id, courier_id, radius_m, eta_seconds, expires_at, candidates) VALUES "
+            "(:order, :courier, :radius, :seconds, now() + make_interval(secs => :ttl), CAST(:candidates AS jsonb)) "
+            "RETURNING id",
             order=order_id,
             courier=courier,
             radius=radius,
             seconds=seconds,
             ttl=float(settings.offer_seconds),
+            candidates=json.dumps(candidates),
         )
         await emit(
             conn,

@@ -228,3 +228,24 @@ async def test_api_sobrevive_ao_banco_derrubar_as_conexoes(client, city):
     assert (
         await client.post("/api/orders", json={"store_id": 1, "address_id": city["customers"][0]})
     ).status_code == 201
+
+
+async def test_despacho_guarda_os_candidatos_e_escolhe_o_mais_rapido(client, city, redis, jobs, engine):
+    await online(redis, client, 1, 2, 3)
+    order = await create(client, city)
+    await client.post(f"/api/stores/1/orders/{order}/accept", json={"prep_minutes": 5})
+    await jobs()
+    first = await offer_of(order)
+    await client.post(f"/api/offers/{first['id']}/decline")
+    await jobs()
+    response = await client.get(f"/api/orders/{order}/dispatch")
+    assert response.status_code == 200
+    offers = response.json()["offers"]
+    assert [o["status"] for o in offers] == ["recusada", "pendente"]
+    ranked = offers[0]["candidates"]
+    assert [c["courier_id"] for c in ranked] == [1, 2]
+    assert ranked == sorted(ranked, key=lambda c: c["eta_seconds"])
+    assert all(c["distance_m"] > 0 for c in ranked)
+    assert offers[0]["courier_id"] == ranked[0]["courier_id"]
+    assert [c["courier_id"] for c in offers[1]["candidates"]] == [2]
+    assert (await client.get("/api/orders/999/dispatch")).status_code == 404
