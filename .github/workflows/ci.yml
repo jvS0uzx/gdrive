@@ -119,7 +119,16 @@ jobs:
         env:
           SIM_SPEED: "30"
           SIM_ORDER_EVERY: 2s
-        run: docker compose up --build --wait
+        run: |
+          docker compose up --build -d
+          for i in $(seq 1 90); do
+            if curl -sf localhost:8085/api/healthz >/dev/null && curl -sf localhost:8085/healthz >/dev/null; then
+              exit 0
+            fi
+            sleep 2
+          done
+          docker compose ps
+          exit 1
 
       - name: pedidos entregues de ponta a ponta
         run: |
