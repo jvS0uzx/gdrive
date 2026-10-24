@@ -16,7 +16,7 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-func setup(t *testing.T) (*miniredis.Miniredis, *redis.Client, *httptest.Server) {
+func setup(t *testing.T, opts ...func(*Hub)) (*miniredis.Miniredis, *redis.Client, *httptest.Server) {
 	t.Helper()
 	mr := miniredis.RunT(t)
 	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
@@ -25,6 +25,9 @@ func setup(t *testing.T) (*miniredis.Miniredis, *redis.Client, *httptest.Server)
 	hub.SetPlanner(func(from, to Point) (Plan, bool) {
 		return Plan{Path: [][2]float64{{from.Lon, from.Lat}, {to.Lon, to.Lat}}, Seconds: 60, Meters: Distance(from, to)}, true
 	})
+	for _, opt := range opts {
+		opt(hub)
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	hub.Run(ctx)
@@ -279,5 +282,129 @@ func TestRotaPrevistaUmaVezPorTrechoERastroPontoAPonto(t *testing.T) {
 	}
 	if _, exists := j.Plan["cliente"]; exists {
 		t.Fatal("ainda não existe trecho até o cliente")
+	}
+}
+
+func trackingTypes(t *testing.T, rdb *redis.Client) []string {
+	t.Helper()
+	msgs, err := rdb.XRange(context.Background(), TrackingStream, "-", "+").Result()
+	if err != nil {
+		t.Fatal(err)
+	}
+	types := make([]string, len(msgs))
+	for i, m := range msgs {
+		types[i] = m.Values["type"].(string)
+	}
+	return types
+}
+
+func TestParadoDisparaUmaVezEAndarDeNovoAvisa(t *testing.T) {
+	mr, rdb, ts := setup(t, func(h *Hub) { h.SetStoppedAfter(300 * time.Millisecond) })
+	ctx := context.Background()
+	rdb.HSet(ctx, TargetKey(6), "order_id", 80, "lat", -12.90, "lon", -38.50, "phase", "loja")
+	conn := dial(t, ts, "/ws/courier?id=6")
+	for range 8 {
+		send(t, conn, Point{-12.97, -38.50})
+		time.Sleep(60 * time.Millisecond)
+	}
+	eventually(t, "alerta de parado", func() bool { return mr.HGet(TargetKey(6), "stopped") != "" })
+	send(t, conn, Point{-12.9701, -38.50})
+	time.Sleep(100 * time.Millisecond)
+	if got := trackingTypes(t, rdb); len(got) != 1 || got[0] != "entregador_parado" {
+		t.Fatalf("esperado um parado só, mesmo com 11 m de oscilação: %v", got)
+	}
+	send(t, conn, Point{-12.968, -38.50})
+	eventually(t, "aviso de que voltou a andar", func() bool {
+		got := trackingTypes(t, rdb)
+		return len(got) == 2 && got[1] == "entregador_em_movimento"
+	})
+	if mr.HGet(TargetKey(6), "stopped") != "" {
+		t.Fatal("marca de parado continua no alvo")
+	}
+}
+
+func TestDesvioDaRotaPrevistaEVoltaParaEla(t *testing.T) {
+	_, rdb, ts := setup(t)
+	ctx := context.Background()
+	rdb.HSet(ctx, TargetKey(8), "order_id", 81, "lat", -12.99, "lon", -38.50, "phase", "cliente")
+	conn := dial(t, ts, "/ws/courier?id=8")
+	send(t, conn, Point{-12.97, -38.50})
+	send(t, conn, Point{-12.975, -38.5005})
+	time.Sleep(100 * time.Millisecond)
+	if got := trackingTypes(t, rdb); len(got) != 0 {
+		t.Fatalf("54 m da rota ainda não é desvio: %v", got)
+	}
+	send(t, conn, Point{-12.976, -38.503})
+	send(t, conn, Point{-12.977, -38.504})
+	eventually(t, "desvio", func() bool { return len(trackingTypes(t, rdb)) == 1 })
+	msgs, _ := rdb.XRange(ctx, TrackingStream, "-", "+").Result()
+	var data struct {
+		Order  int64   `json:"order_id"`
+		Meters float64 `json:"meters"`
+		Phase  string  `json:"phase"`
+	}
+	if err := json.Unmarshal([]byte(msgs[0].Values["data"].(string)), &data); err != nil {
+		t.Fatal(err)
+	}
+	if msgs[0].Values["type"] != "desvio_de_rota" || data.Order != 81 || data.Phase != "cliente" || data.Meters < 300 || data.Meters > 340 {
+		t.Fatalf("evento de desvio: %v %+v", msgs[0].Values, data)
+	}
+	send(t, conn, Point{-12.98, -38.5003})
+	eventually(t, "volta para a rota", func() bool {
+		got := trackingTypes(t, rdb)
+		return len(got) == 2 && got[1] == "rota_retomada"
+	})
+}
+
+func TestDistanciaAteARota(t *testing.T) {
+	path := [][2]float64{{-38.50, -12.97}, {-38.50, -12.98}, {-38.49, -12.98}}
+	cases := []struct {
+		p        Point
+		min, max float64
+	}{
+		{Point{-12.975, -38.50}, 0, 0.5},
+		{Point{-12.975, -38.499}, 105, 112},
+		{Point{-12.96, -38.50}, 1100, 1125},
+		{Point{-12.979, -38.495}, 105, 115},
+	}
+	for _, c := range cases {
+		if d := DistanceToPath(c.p, path); d < c.min || d > c.max {
+			t.Errorf("%v: %.1f m, esperado entre %.0f e %.0f", c.p, d, c.min, c.max)
+		}
+	}
+}
+
+func TestAlertaEntraESaiDoRetratoDaCentral(t *testing.T) {
+	hub := New(nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	hub.apply(Event{Type: "entregador_atribuido", Order: 1, Version: 4, Status: "a_caminho_da_loja", Store: &Point{1, 1}, Courier: 3})
+	hub.apply(Event{Type: "sinal_perdido", Order: 1, Version: 4, Status: "a_caminho_da_loja", Alert: "sinal_perdido", AlertAt: 1000})
+	hub.apply(Event{Type: "entregador_parado", Order: 1, Version: 4, Status: "a_caminho_da_loja", Alert: "parado", AlertAt: 2000})
+	var snap struct {
+		Orders []orderState `json:"orders"`
+	}
+	if err := json.Unmarshal(hub.snapshot(), &snap); err != nil {
+		t.Fatal(err)
+	}
+	if len(snap.Orders) != 1 || len(snap.Orders[0].Alerts) != 2 || snap.Orders[0].Alerts["parado"] != 2000 {
+		t.Fatalf("alertas no retrato: %+v", snap.Orders)
+	}
+	hub.apply(Event{Type: "alerta_resolvido", Order: 1, Version: 4, Status: "a_caminho_da_loja", Alert: "sinal_perdido"})
+	if a := hub.orders[1].Alerts; len(a) != 1 || a["parado"] == 0 {
+		t.Fatalf("alerta resolvido continua: %v", a)
+	}
+}
+
+func TestChuvaLigadaNoRedisChegaAoRetrato(t *testing.T) {
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	defer rdb.Close()
+	mr.HSet(WeatherKey, "rain", "1")
+	hub := New(rdb, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	hub.Run(ctx)
+	eventually(t, "chuva ligada", hub.Raining)
+	if !strings.Contains(string(hub.snapshot()), `"rain":true`) {
+		t.Fatal("retrato sem a chuva")
 	}
 }

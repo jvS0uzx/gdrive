@@ -191,10 +191,7 @@ func (s *Server) route(w http.ResponseWriter, r *http.Request) {
 		writeError(w, statusOf(err), "destino: "+err.Error())
 		return
 	}
-	factor := 1.0
-	if req.Rain {
-		factor = rainFactor
-	}
+	factor, rain := s.weather(req.Rain)
 	p, ok := s.graph.Shortest(from, to, factor)
 	if !ok {
 		s.log.Error("rota impossível numa malha que deveria ser fortemente conexa", "from", from, "to", to)
@@ -206,7 +203,7 @@ func (s *Server) route(w http.ResponseWriter, r *http.Request) {
 		ToNode:            to,
 		Seconds:           round1(p.Seconds),
 		Meters:            round1(p.Meters),
-		Rain:              req.Rain,
+		Rain:              rain,
 		Roads:             s.mainRoads(p.Streets),
 		Path:              lineString{Type: "LineString", Coordinates: make([][2]float64, len(p.Nodes))},
 		CumulativeSeconds: make([]float64, len(p.Cumulative)),
@@ -255,10 +252,7 @@ func (s *Server) alternatives(w http.ResponseWriter, r *http.Request) {
 		writeError(w, statusOf(err), "destino: "+err.Error())
 		return
 	}
-	factor := 1.0
-	if req.Rain {
-		factor = rainFactor
-	}
+	factor, _ := s.weather(req.Rain)
 	out := map[string]*routeOption{}
 	for name, mode := range map[string]route.Mode{"fastest": route.Fastest, "shortest": route.Shortest, "no_expressway": route.NoExpressway} {
 		if p, ok := s.graph.ShortestBy(from, to, factor, mode); ok {
@@ -278,7 +272,8 @@ func (s *Server) Plan(from, to live.Point) (live.Plan, bool) {
 	if a < 0 || b < 0 || da > maxSnapMeters || db > maxSnapMeters {
 		return live.Plan{}, false
 	}
-	p, ok := s.graph.Shortest(a, b, 1)
+	factor, _ := s.weather(false)
+	p, ok := s.graph.Shortest(a, b, factor)
 	if !ok {
 		return live.Plan{}, false
 	}
@@ -333,10 +328,7 @@ func (s *Server) eta(w http.ResponseWriter, r *http.Request) {
 		ids = append(ids, id)
 		nodes = append(nodes, node)
 	}
-	factor := 1.0
-	if req.Rain {
-		factor = rainFactor
-	}
+	factor, _ := s.weather(req.Rain)
 	times := s.graph.TimesTo(target, nodes, factor)
 	out := make([]eta, 0, len(ids))
 	for i, id := range ids {
@@ -345,6 +337,13 @@ func (s *Server) eta(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"etas": out})
+}
+
+func (s *Server) weather(asked bool) (float64, bool) {
+	if asked || (s.hub != nil && s.hub.Raining()) {
+		return rainFactor, true
+	}
+	return 1, false
 }
 
 func (s *Server) mainRoads(streets []int32) []road {

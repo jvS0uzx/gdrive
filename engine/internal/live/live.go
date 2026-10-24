@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/coder/websocket"
@@ -21,7 +22,13 @@ const (
 	PositionsTopic  = "live:positions"
 	OrdersStream    = "events.orders"
 	TrackingStream  = "events.tracking"
+	WeatherKey      = "city:weather"
 	arrivalMeters   = 50.0
+	stopMeters      = 25.0
+	offRouteMeters  = 150.0
+	backOnRoute     = 60.0
+	weatherEvery    = 2 * time.Second
+	streamMax       = 200_000
 	snapshotEvery   = 500 * time.Millisecond
 	targetFreshness = 2 * time.Second
 	staleAfter      = 20 * time.Second
@@ -36,8 +43,9 @@ func TrackKey(order int64, phase string) string {
 }
 
 const (
-	journeyTTL = 24 * time.Hour
-	trackLimit = 5000
+	journeyTTL          = 24 * time.Hour
+	trackLimit          = 5000
+	defaultStoppedAfter = 60 * time.Second
 )
 
 type Plan struct {
@@ -75,16 +83,19 @@ type Event struct {
 	Name     string  `json:"store_name,omitempty"`
 	Offer    int64   `json:"offer_id,omitempty"`
 	ETA      float64 `json:"eta_seconds,omitempty"`
+	Alert    string  `json:"alert,omitempty"`
+	AlertAt  int64   `json:"alert_at,omitempty"`
 }
 
 type orderState struct {
-	ID       int64  `json:"id"`
-	Status   string `json:"status"`
-	Version  int    `json:"version"`
-	Store    *Point `json:"store,omitempty"`
-	Customer *Point `json:"customer,omitempty"`
-	Name     string `json:"store_name,omitempty"`
-	Courier  int64  `json:"courier_id,omitempty"`
+	ID       int64            `json:"id"`
+	Status   string           `json:"status"`
+	Version  int              `json:"version"`
+	Store    *Point           `json:"store,omitempty"`
+	Customer *Point           `json:"customer,omitempty"`
+	Name     string           `json:"store_name,omitempty"`
+	Courier  int64            `json:"courier_id,omitempty"`
+	Alerts   map[string]int64 `json:"alerts,omitempty"`
 }
 
 type courierState struct {
@@ -95,24 +106,27 @@ type courierState struct {
 var finished = map[string]bool{"entregue": true, "cancelado": true, "recusado": true}
 
 type Hub struct {
-	planner  Planner
-	rdb      *redis.Client
-	log      *slog.Logger
-	mu       sync.RWMutex
-	couriers map[int64]*courierState
-	orders   map[int64]*orderState
-	central  map[chan []byte]struct{}
-	watchers map[int64]map[chan []byte]struct{}
+	planner      Planner
+	stoppedAfter time.Duration
+	rain         atomic.Bool
+	rdb          *redis.Client
+	log          *slog.Logger
+	mu           sync.RWMutex
+	couriers     map[int64]*courierState
+	orders       map[int64]*orderState
+	central      map[chan []byte]struct{}
+	watchers     map[int64]map[chan []byte]struct{}
 }
 
 func New(rdb *redis.Client, log *slog.Logger) *Hub {
 	return &Hub{
-		rdb:      rdb,
-		log:      log,
-		couriers: map[int64]*courierState{},
-		orders:   map[int64]*orderState{},
-		central:  map[chan []byte]struct{}{},
-		watchers: map[int64]map[chan []byte]struct{}{},
+		stoppedAfter: defaultStoppedAfter,
+		rdb:          rdb,
+		log:          log,
+		couriers:     map[int64]*courierState{},
+		orders:       map[int64]*orderState{},
+		central:      map[chan []byte]struct{}{},
+		watchers:     map[int64]map[chan []byte]struct{}{},
 	}
 }
 
@@ -120,10 +134,38 @@ func (h *Hub) SetPlanner(p Planner) {
 	h.planner = p
 }
 
+func (h *Hub) SetStoppedAfter(d time.Duration) {
+	h.stoppedAfter = d
+}
+
+func (h *Hub) Raining() bool {
+	return h.rain.Load()
+}
+
 func (h *Hub) Run(ctx context.Context) {
 	go h.followPositions(ctx)
 	go h.followOrders(ctx)
+	go h.followWeather(ctx)
 	go h.broadcastSnapshots(ctx)
+}
+
+func (h *Hub) followWeather(ctx context.Context) {
+	tick := time.NewTicker(weatherEvery)
+	defer tick.Stop()
+	for {
+		v, err := h.rdb.HGet(ctx, WeatherKey, "rain").Result()
+		switch {
+		case err == nil:
+			h.rain.Store(v == "1")
+		case errors.Is(err, redis.Nil):
+			h.rain.Store(false)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-tick.C:
+		}
+	}
 }
 
 func Distance(a, b Point) float64 {
@@ -176,6 +218,16 @@ func (h *Hub) apply(e Event) {
 			o.Courier = e.Courier
 		case "entregador_desatribuido":
 			o.Courier = 0
+		}
+		if e.Alert != "" {
+			if e.Type == "alerta_resolvido" {
+				delete(o.Alerts, e.Alert)
+			} else {
+				if o.Alerts == nil {
+					o.Alerts = map[string]int64{}
+				}
+				o.Alerts[e.Alert] = e.AlertAt
+			}
 		}
 	}
 	h.mu.Unlock()
@@ -261,7 +313,7 @@ func (h *Hub) snapshot() []byte {
 			orders = append(orders, o)
 		}
 	}
-	data, _ := json.Marshal(map[string]any{"type": "snapshot", "couriers": couriers, "orders": orders})
+	data, _ := json.Marshal(map[string]any{"type": "snapshot", "couriers": couriers, "orders": orders, "rain": h.Raining()})
 	return data
 }
 
@@ -333,11 +385,14 @@ func (h *Hub) ServeCourier(w http.ResponseWriter, r *http.Request) {
 }
 
 type tracker struct {
-	hub     *Hub
-	id      int64
-	target  map[string]string
-	fetched time.Time
-	planned string
+	hub      *Hub
+	id       int64
+	target   map[string]string
+	fetched  time.Time
+	planned  string
+	path     [][2]float64
+	anchor   Point
+	anchorAt time.Time
 }
 
 func (t *tracker) update(ctx context.Context, p Point) error {
@@ -365,12 +420,20 @@ func (t *tracker) update(ctx context.Context, p Point) error {
 		}
 		if key := t.target["order_id"] + ":" + pos.Phase; key != t.planned {
 			t.planned = key
-			t.plan(ctx, order, pos.Phase, p, Point{lat, lon})
+			t.path = t.plan(ctx, order, pos.Phase, p, Point{lat, lon})
+			t.anchorAt = time.Time{}
+		}
+		if t.target["arrived_"+pos.Phase] == "" {
+			if err := t.watch(ctx, order, pos.Phase, p, now); err != nil {
+				return err
+			}
 		}
 		track := TrackKey(order, pos.Phase)
 		pipe.RPush(ctx, track, strconv.FormatFloat(p.Lon, 'f', 6, 64)+","+strconv.FormatFloat(p.Lat, 'f', 6, 64)+","+strconv.FormatInt(now.UnixMilli(), 10))
 		pipe.LTrim(ctx, track, -trackLimit, -1)
 		pipe.Expire(ctx, track, journeyTTL)
+	} else {
+		t.planned = ""
 	}
 	data, _ := json.Marshal(pos)
 	pipe.Publish(ctx, PositionsTopic, data)
@@ -378,25 +441,121 @@ func (t *tracker) update(ctx context.Context, p Point) error {
 	return err
 }
 
-func (t *tracker) plan(ctx context.Context, order int64, phase string, from, to Point) {
+func (t *tracker) plan(ctx context.Context, order int64, phase string, from, to Point) [][2]float64 {
+	key := PlanKey(order)
+	if stored, err := t.hub.rdb.HGet(ctx, key, phase).Result(); err == nil {
+		var p Plan
+		if json.Unmarshal([]byte(stored), &p) == nil {
+			return p.Path
+		}
+	}
 	if t.hub.planner == nil {
-		return
+		return nil
 	}
 	plan, ok := t.hub.planner(from, to)
 	if !ok {
-		return
+		return nil
 	}
 	plan.From, plan.At = [2]float64{from.Lon, from.Lat}, time.Now().UnixMilli()
 	data, err := json.Marshal(plan)
 	if err != nil {
-		return
+		return plan.Path
 	}
-	key := PlanKey(order)
 	if err := t.hub.rdb.HSetNX(ctx, key, phase, data).Err(); err != nil {
 		t.hub.log.Warn("rota prevista não gravada", "order", order, "err", err)
-		return
+		return plan.Path
 	}
 	t.hub.rdb.Expire(ctx, key, journeyTTL)
+	return plan.Path
+}
+
+func (t *tracker) watch(ctx context.Context, order int64, phase string, p Point, now time.Time) error {
+	if t.anchorAt.IsZero() || Distance(p, t.anchor) > stopMeters {
+		t.anchor, t.anchorAt = p, now
+		if t.target["stopped"] != "" {
+			if err := t.flag(ctx, "stopped", false); err != nil {
+				return err
+			}
+			if err := t.emit(ctx, "entregador_em_movimento", order, phase, nil); err != nil {
+				return err
+			}
+		}
+	} else if still := now.Sub(t.anchorAt); still >= t.hub.stoppedAfter && t.target["stopped"] == "" {
+		if err := t.flag(ctx, "stopped", true); err != nil {
+			return err
+		}
+		if err := t.emit(ctx, "entregador_parado", order, phase, map[string]any{"seconds": int(still.Seconds())}); err != nil {
+			return err
+		}
+	}
+	if len(t.path) < 2 {
+		return nil
+	}
+	d := DistanceToPath(p, t.path)
+	off := t.target["off_route"] != ""
+	switch {
+	case !off && d > offRouteMeters:
+		if err := t.flag(ctx, "off_route", true); err != nil {
+			return err
+		}
+		return t.emit(ctx, "desvio_de_rota", order, phase, map[string]any{"meters": math.Round(d)})
+	case off && d <= backOnRoute:
+		if err := t.flag(ctx, "off_route", false); err != nil {
+			return err
+		}
+		return t.emit(ctx, "rota_retomada", order, phase, nil)
+	}
+	return nil
+}
+
+func (t *tracker) flag(ctx context.Context, field string, on bool) error {
+	if on {
+		t.target[field] = "1"
+		return t.hub.rdb.HSet(ctx, TargetKey(t.id), field, 1).Err()
+	}
+	delete(t.target, field)
+	return t.hub.rdb.HDel(ctx, TargetKey(t.id), field).Err()
+}
+
+func (t *tracker) emit(ctx context.Context, kind string, order int64, phase string, extra map[string]any) error {
+	data := map[string]any{"order_id": order, "courier_id": t.id, "phase": phase}
+	for k, v := range extra {
+		data[k] = v
+	}
+	raw, _ := json.Marshal(data)
+	return t.hub.rdb.XAdd(ctx, &redis.XAddArgs{
+		Stream: TrackingStream,
+		MaxLen: streamMax,
+		Approx: true,
+		Values: map[string]any{"type": kind, "data": string(raw)},
+	}).Err()
+}
+
+func DistanceToPath(p Point, path [][2]float64) float64 {
+	const earth = 6_371_000.0
+	ky := earth * math.Pi / 180
+	kx := ky * math.Cos(p.Lat*math.Pi/180)
+	best := math.Inf(1)
+	var ax, ay float64
+	for i, c := range path {
+		bx, by := (c[0]-p.Lon)*kx, (c[1]-p.Lat)*ky
+		if i == 0 {
+			best = math.Hypot(bx, by)
+		} else {
+			best = min(best, toSegment(ax, ay, bx, by))
+		}
+		ax, ay = bx, by
+	}
+	return best
+}
+
+func toSegment(ax, ay, bx, by float64) float64 {
+	dx, dy := bx-ax, by-ay
+	f := 0.0
+	if l := dx*dx + dy*dy; l > 0 {
+		f = max(0, min(1, -(ax*dx+ay*dy)/l))
+	}
+	return math.Hypot(ax+f*dx, ay+f*dy)
 }
 
 func (t *tracker) arrive(ctx context.Context, order int64, phase string) error {
@@ -405,14 +564,12 @@ func (t *tracker) arrive(ctx context.Context, order int64, phase string) error {
 	if !ok {
 		return nil
 	}
-	rdb := t.hub.rdb
-	first, err := rdb.HSetNX(ctx, TargetKey(t.id), "arrived_"+phase, time.Now().UnixMilli()).Result()
+	first, err := t.hub.rdb.HSetNX(ctx, TargetKey(t.id), "arrived_"+phase, time.Now().UnixMilli()).Result()
 	if err != nil || !first {
 		return err
 	}
 	t.target["arrived_"+phase] = "1"
-	data, _ := json.Marshal(map[string]any{"order_id": order, "courier_id": t.id, "phase": phase})
-	return rdb.XAdd(ctx, &redis.XAddArgs{Stream: TrackingStream, Values: map[string]any{"type": kind, "data": string(data)}}).Err()
+	return t.emit(ctx, kind, order, phase, nil)
 }
 
 func (h *Hub) ServeCentral(w http.ResponseWriter, r *http.Request) {

@@ -65,6 +65,9 @@ func main() {
 			os.Exit(1)
 		}
 		hub = live.New(redis.NewClient(opts), log)
+		if d, err := time.ParseDuration(os.Getenv("STOPPED_AFTER")); err == nil {
+			hub.SetStoppedAfter(d)
+		}
 		hub.Run(ctx)
 		log.Info("tempo real ligado", "redis", opts.Addr)
 	}
