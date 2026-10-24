@@ -40,6 +40,52 @@ jobs:
       - name: go test
         run: go test -count=1 -race ./...
 
+  api:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: api
+    services:
+      db:
+        image: postgis/postgis:18-3.6-alpine
+        env:
+          POSTGRES_PASSWORD: gdrive
+          POSTGRES_DB: gdrive_test
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 30
+        ports:
+          - 5432:5432
+      redis:
+        image: redis:7.4-alpine
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 2s
+          --health-retries 30
+        ports:
+          - 6379:6379
+    env:
+      DATABASE_URL: postgresql+asyncpg://postgres:gdrive@localhost:5432/gdrive_test
+      REDIS_URL: redis://localhost:6379/0
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          python-version: "3.14"
+
+      - run: uv sync --frozen
+
+      - name: ruff
+        run: |
+          uv run ruff check .
+          uv run ruff format --check .
+
+      - name: pytest
+        run: uv run pytest -q
+
   web:
     runs-on: ubuntu-24.04
     defaults:
@@ -65,12 +111,26 @@ jobs:
 
   e2e:
     runs-on: ubuntu-24.04
-    needs: [engine, web]
+    needs: [engine, api, web]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: sobe a pilha
+      - name: sobe a pilha com o simulador acelerado
+        env:
+          SIM_SPEED: "30"
+          SIM_ORDER_EVERY: 2s
         run: docker compose up --build --wait
+
+      - name: pedidos entregues de ponta a ponta
+        run: |
+          for i in $(seq 1 120); do
+            entregues=$(curl -s localhost:8085/api/stats | python3 -c 'import json,sys; print(json.load(sys.stdin)["delivered"])' || echo 0)
+            echo "entregues: $entregues"
+            if [ "$entregues" -ge 3 ]; then exit 0; fi
+            sleep 5
+          done
+          curl -s localhost:8085/api/stats
+          exit 1
 
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
         with:
