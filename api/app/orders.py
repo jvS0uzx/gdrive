@@ -107,6 +107,7 @@ async def create(conn: AsyncConnection, store, customer, travel_seconds: float) 
         store={"lat": store["lat"], "lon": store["lon"]},
         customer={"lat": customer["lat"], "lon": customer["lon"]},
         store_name=store["name"],
+        store_id=store["id"],
     )
     await schedule(conn, "store_timeout", delay=settings.store_timeout_seconds, order_id=order["id"])
     return order["id"]

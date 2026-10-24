@@ -79,6 +79,29 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  sim:
+    build:
+      context: .
+      dockerfile: engine/Dockerfile
+    entrypoint: ["/sim"]
+    environment:
+      API_URL: http://api:8000
+      ENGINE_URL: http://engine:8080
+      REDIS_URL: redis://redis:6379/0
+      COURIERS: "${SIM_COURIERS:-60}"
+      ORDER_EVERY: "${SIM_ORDER_EVERY:-4s}"
+      SPEED: "${SIM_SPEED:-8}"
+    healthcheck:
+      disable: true
+    depends_on:
+      api:
+        condition: service_healthy
+      engine:
+        condition: service_healthy
+      worker:
+        condition: service_started
+    restart: unless-stopped
+
   web:
     build:
       context: .

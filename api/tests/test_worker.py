@@ -29,6 +29,7 @@ async def test_relay_publica_no_stream_e_marca_o_alvo(client, city, redis, jobs)
     ]
     created = json.loads(entries[0][1]["data"])
     assert created["store"]["lat"] == -12.98 and created["store_name"] == "Acarajé da Dinha"
+    assert created["store_id"] == city["stores"]["Acarajé da Dinha"]
     target = await redis.hgetall("target:1")
     assert target["order_id"] == str(order) and target["phase"] == "loja" and float(target["lat"]) == -12.98
     assert await relay_once(redis) == 0
