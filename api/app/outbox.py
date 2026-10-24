@@ -1,0 +1,60 @@
+import json
+
+from redis.asyncio import Redis
+from redis.asyncio.client import Pipeline
+
+from app.db import loads, many, run, transaction
+
+
+def target_key(courier_id: int) -> str:
+    return f"target:{courier_id}"
+
+
+def side_effects(pipe: Pipeline, payload: dict) -> None:
+    courier = payload.get("courier_id")
+    kind = payload["type"]
+    if kind in ("entregador_atribuido", "pedido_coletado") and courier:
+        point = payload["store"] if kind == "entregador_atribuido" else payload["customer"]
+        key = target_key(courier)
+        pipe.delete(key)
+        pipe.hset(
+            key,
+            mapping={
+                "order_id": payload["order_id"],
+                "lat": point["lat"],
+                "lon": point["lon"],
+                "phase": "loja" if kind == "entregador_atribuido" else "cliente",
+                "version": payload["version"],
+            },
+        )
+    elif kind in ("pedido_entregue", "pedido_cancelado", "entregador_desatribuido") and courier:
+        pipe.delete(target_key(courier))
+
+
+async def relay_once(redis: Redis, limit: int = 200) -> int:
+    async with transaction() as conn:
+        rows = await many(
+            conn,
+            "SELECT id, topic, payload FROM outbox WHERE published_at IS NULL ORDER BY id "
+            "LIMIT :limit FOR UPDATE SKIP LOCKED",
+            limit=limit,
+        )
+        if not rows:
+            return 0
+        pipe = redis.pipeline(transaction=False)
+        for row in rows:
+            payload = loads(row["payload"])
+            pipe.xadd(
+                row["topic"],
+                {"type": payload["type"], "data": json.dumps(payload)},
+                maxlen=200_000,
+                approximate=True,
+            )
+            side_effects(pipe, payload)
+        await pipe.execute()
+        await run(
+            conn,
+            "UPDATE outbox SET published_at = now() WHERE id = ANY(:ids)",
+            ids=[row["id"] for row in rows],
+        )
+        return len(rows)

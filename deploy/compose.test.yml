@@ -1,0 +1,19 @@
+name: gdrive-test
+
+services:
+  db:
+    image: postgis/postgis:18-3.6-alpine
+    environment:
+      POSTGRES_PASSWORD: gdrive
+      POSTGRES_DB: gdrive_test
+    ports:
+      - "55432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 2s
+      retries: 30
+
+  redis:
+    image: redis:7.4-alpine
+    ports:
+      - "56379:6379"
