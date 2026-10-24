@@ -26,6 +26,7 @@ const (
 	arrivalMeters   = 50.0
 	stopMeters      = 25.0
 	offRouteMeters  = 150.0
+	offRouteSamples = 3
 	backOnRoute     = 60.0
 	weatherEvery    = 2 * time.Second
 	streamMax       = 200_000
@@ -393,6 +394,7 @@ type tracker struct {
 	path     [][2]float64
 	anchor   Point
 	anchorAt time.Time
+	offCount int
 }
 
 func (t *tracker) update(ctx context.Context, p Point) error {
@@ -421,7 +423,7 @@ func (t *tracker) update(ctx context.Context, p Point) error {
 		if key := t.target["order_id"] + ":" + pos.Phase; key != t.planned {
 			t.planned = key
 			t.path = t.plan(ctx, order, pos.Phase, p, Point{lat, lon})
-			t.anchorAt = time.Time{}
+			t.anchorAt, t.offCount = time.Time{}, 0
 		}
 		if t.target["arrived_"+pos.Phase] == "" {
 			if err := t.watch(ctx, order, pos.Phase, p, now); err != nil {
@@ -492,9 +494,14 @@ func (t *tracker) watch(ctx context.Context, order int64, phase string, p Point,
 		return nil
 	}
 	d := DistanceToPath(p, t.path)
+	if d > offRouteMeters {
+		t.offCount++
+	} else {
+		t.offCount = 0
+	}
 	off := t.target["off_route"] != ""
 	switch {
-	case !off && d > offRouteMeters:
+	case !off && t.offCount >= offRouteSamples:
 		if err := t.flag(ctx, "off_route", true); err != nil {
 			return err
 		}

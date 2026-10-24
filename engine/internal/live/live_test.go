@@ -336,6 +336,11 @@ func TestDesvioDaRotaPrevistaEVoltaParaEla(t *testing.T) {
 	}
 	send(t, conn, Point{-12.976, -38.503})
 	send(t, conn, Point{-12.977, -38.504})
+	time.Sleep(100 * time.Millisecond)
+	if got := trackingTypes(t, rdb); len(got) != 0 {
+		t.Fatalf("duas posições fora ainda não são desvio: %v", got)
+	}
+	send(t, conn, Point{-12.978, -38.504})
 	eventually(t, "desvio", func() bool { return len(trackingTypes(t, rdb)) == 1 })
 	msgs, _ := rdb.XRange(ctx, TrackingStream, "-", "+").Result()
 	var data struct {
@@ -346,7 +351,7 @@ func TestDesvioDaRotaPrevistaEVoltaParaEla(t *testing.T) {
 	if err := json.Unmarshal([]byte(msgs[0].Values["data"].(string)), &data); err != nil {
 		t.Fatal(err)
 	}
-	if msgs[0].Values["type"] != "desvio_de_rota" || data.Order != 81 || data.Phase != "cliente" || data.Meters < 300 || data.Meters > 340 {
+	if msgs[0].Values["type"] != "desvio_de_rota" || data.Order != 81 || data.Phase != "cliente" || data.Meters < 420 || data.Meters > 450 {
 		t.Fatalf("evento de desvio: %v %+v", msgs[0].Values, data)
 	}
 	send(t, conn, Point{-12.98, -38.5003})
