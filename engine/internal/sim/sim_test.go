@@ -2,6 +2,7 @@ package sim
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"log/slog"
 	"math"
@@ -97,5 +98,50 @@ func TestDesisteDepoisDoLimiteDeTentativas(t *testing.T) {
 	s.post(context.Background(), "/api/orders/1/deliver", nil)
 	if *calls != 4 {
 		t.Fatalf("esperado parar em 4 tentativas, foram %d", *calls)
+	}
+}
+
+func TestEntregadorParadoNaoAndaAteOPrazo(t *testing.T) {
+	c := &courier{id: 1, pos: live.Point{Lat: -12.97, Lon: -38.50}}
+	c.follow(&Path{Coords: [][2]float64{{-38.50, -12.97}, {-38.48, -12.97}}, Cumulative: []float64{0, 100}})
+	c.frozen = time.Now().Add(time.Hour)
+	if p := c.step(50); p.Lon != -38.50 {
+		t.Fatalf("parado andou: %+v", p)
+	}
+	c.frozen = time.Time{}
+	if p := c.step(50); math.Abs(p.Lon-(-38.49)) > 1e-9 {
+		t.Fatalf("depois de liberado deveria seguir do mesmo ponto: %+v", p)
+	}
+}
+
+func TestDesvioPassaLongeDaLinhaReta(t *testing.T) {
+	from, to := live.Point{Lat: -12.97, Lon: -38.50}, live.Point{Lat: -12.99, Lon: -38.50}
+	ways := Waypoints(from, to, 700)
+	mid := live.Point{Lat: -12.98, Lon: -38.50}
+	for _, w := range ways {
+		if d := live.Distance(mid, w); d < 690 || d > 710 {
+			t.Fatalf("ponto de desvio a %.0f m do meio do caminho: %+v", d, w)
+		}
+		if math.Abs(w.Lat-mid.Lat) > 1e-6 {
+			t.Fatalf("desvio deveria ser perpendicular ao trajeto norte-sul: %+v", w)
+		}
+	}
+	if (ways[0].Lon-mid.Lon)*(ways[1].Lon-mid.Lon) >= 0 {
+		t.Fatalf("os dois pontos deveriam ficar em lados opostos: %+v", ways)
+	}
+}
+
+func TestJuntaDuasRotasSemRepetirOPontoDoMeio(t *testing.T) {
+	a := &Path{Coords: [][2]float64{{0, 0}, {1, 0}}, Cumulative: []float64{0, 10}}
+	b := &Path{Coords: [][2]float64{{1, 0}, {1, 1}, {2, 1}}, Cumulative: []float64{0, 5, 15}}
+	got := Join(a, b)
+	if len(got.Coords) != 4 || got.Coords[2] != [2]float64{1, 1} {
+		t.Fatalf("pontos: %v", got.Coords)
+	}
+	if want := []float64{0, 10, 15, 25}; fmt.Sprint(got.Cumulative) != fmt.Sprint(want) {
+		t.Fatalf("tempos acumulados %v, esperado %v", got.Cumulative, want)
+	}
+	if len(a.Coords) != 2 {
+		t.Fatal("a rota original foi alterada")
 	}
 }

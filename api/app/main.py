@@ -1,21 +1,26 @@
 import asyncio
+import json
 import logging
 from contextlib import asynccontextmanager
 
 import httpx
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Path, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from redis.asyncio import Redis
 
 from app import orders
 from app.config import settings
-from app.db import loads, many, one, transaction
+from app.db import loads, many, one, run, transaction
 from app.dispatch import free_nearby, ranking
 from app.engine import Engine
 from app.seed import seed_if_empty
 
 log = logging.getLogger("gdrive.api")
+
+WEATHER_KEY = "city:weather"
+SIM_CONTROL_KEY = "sim:control"
+SIM_COMMANDS = "sim:commands"
 
 
 async def seed_when_ready(engine: Engine) -> None:
@@ -68,6 +73,19 @@ class CourierIn(BaseModel):
 
 class MaybeCourier(BaseModel):
     courier_id: int | None = None
+
+
+class OnlineIn(BaseModel):
+    human: bool | None = None
+
+
+class SimIn(BaseModel):
+    rain: bool | None = None
+    rush: float | None = Field(default=None, ge=1, le=10)
+
+
+class SimCommandIn(BaseModel):
+    seconds: int = Field(default=60, ge=5, le=600)
 
 
 @app.get("/api/healthz")
@@ -241,13 +259,18 @@ async def list_stores(limit: int = 2000, offset: int = 0):
 
 
 @app.get("/api/couriers")
-async def list_couriers(status: str | None = None, limit: int = 100, offset: int = 0):
+async def list_couriers(
+    status: str | None = None, human: bool | None = None, limit: int = 100, offset: int = 0
+):
     async with transaction() as conn:
         rows = await many(
             conn,
-            "SELECT c.id, c.name, c.status, a.lat, a.lon FROM couriers c JOIN addresses a ON a.id = c.home_address_id "
-            "WHERE CAST(:status AS text) IS NULL OR c.status = :status ORDER BY c.id LIMIT :limit OFFSET :offset",
+            "SELECT c.id, c.name, c.status, c.human, a.lat, a.lon FROM couriers c "
+            "JOIN addresses a ON a.id = c.home_address_id "
+            "WHERE (CAST(:status AS text) IS NULL OR c.status = :status) "
+            "AND (CAST(:human AS boolean) IS NULL OR c.human = :human) ORDER BY c.id LIMIT :limit OFFSET :offset",
             status=status,
+            human=human,
             limit=min(limit, 5000),
             offset=offset,
         )
@@ -255,9 +278,13 @@ async def list_couriers(status: str | None = None, limit: int = 100, offset: int
 
 
 @app.post("/api/couriers/{courier_id}/online")
-async def courier_online(courier_id: int):
+async def courier_online(courier_id: int, body: OnlineIn | None = None):
     async with transaction() as conn:
         await orders.go_online(conn, courier_id)
+        if body is not None and body.human is not None:
+            await run(
+                conn, "UPDATE couriers SET human = :human WHERE id = :id", id=courier_id, human=body.human
+            )
     return {"status": "livre"}
 
 
@@ -307,6 +334,42 @@ async def list_addresses(kind: str = "customer", limit: int = 500, offset: int =
             offset=offset,
         )
     return [dict(row) for row in rows]
+
+
+async def sim_state(redis: Redis) -> dict:
+    rain = await redis.hget(WEATHER_KEY, "rain")
+    rush = await redis.hget(SIM_CONTROL_KEY, "rush")
+    return {"rain": rain == "1", "rush": float(rush) if rush else 1.0}
+
+
+@app.get("/api/sim")
+async def get_sim(request: Request):
+    return await sim_state(request.app.state.redis)
+
+
+@app.put("/api/sim")
+async def put_sim(body: SimIn, request: Request):
+    redis = request.app.state.redis
+    if body.rain is not None:
+        await redis.hset(WEATHER_KEY, "rain", "1" if body.rain else "0")
+    if body.rush is not None:
+        await redis.hset(SIM_CONTROL_KEY, "rush", str(body.rush))
+    return await sim_state(redis)
+
+
+@app.post("/api/sim/couriers/{courier_id}/{action}", status_code=202)
+async def sim_command(
+    courier_id: int,
+    request: Request,
+    action: str = Path(pattern="^(sem_sinal|parar|desviar)$"),
+    body: SimCommandIn | None = None,
+):
+    seconds = body.seconds if body else 60
+    message = json.dumps({"action": action, "courier_id": courier_id, "seconds": seconds})
+    receivers = await request.app.state.redis.publish(SIM_COMMANDS, message)
+    if receivers == 0:
+        return JSONResponse(status_code=503, content={"error": "simulador fora do ar"})
+    return {"action": action, "courier_id": courier_id, "seconds": seconds}
 
 
 @app.get("/api/stats")

@@ -177,3 +177,31 @@ async def test_atraso_abre_no_prazo_e_entrega_fecha_tudo(client, city, redis, jo
     assert [(a["order_id"], a["kind"]) for a in listed] == [(order, "atraso")]
     assert listed[0]["closed_at"] is not None and listed[0]["store_name"] == "Acarajé da Dinha"
     assert (await client.get("/api/alerts")).json() == []
+
+
+async def test_controles_da_simulacao(client, city, redis):
+    assert (await client.get("/api/sim")).json() == {"rain": False, "rush": 1.0}
+    response = await client.put("/api/sim", json={"rain": True, "rush": 3})
+    assert response.json() == {"rain": True, "rush": 3.0}
+    assert await redis.hget("city:weather", "rain") == "1"
+    assert (await client.put("/api/sim", json={"rush": 11})).status_code == 422
+    assert (await client.put("/api/sim", json={"rain": False})).json() == {"rain": False, "rush": 3.0}
+
+    assert (await client.post("/api/sim/couriers/5/sem_sinal")).status_code == 503
+    pubsub = redis.pubsub()
+    await pubsub.subscribe("sim:commands")
+    await pubsub.get_message(timeout=1)
+    response = await client.post("/api/sim/couriers/5/parar", json={"seconds": 90})
+    assert response.status_code == 202
+    message = await pubsub.get_message(timeout=1)
+    assert json.loads(message["data"]) == {"action": "parar", "courier_id": 5, "seconds": 90}
+    assert (await client.post("/api/sim/couriers/5/explodir")).status_code == 422
+    await pubsub.aclose()
+
+
+async def test_entregador_humano_fica_fora_da_simulacao(client, city, redis):
+    assert (await client.post("/api/couriers/3/online", json={"human": True})).status_code == 200
+    humans = (await client.get("/api/couriers?human=true")).json()
+    assert [c["id"] for c in humans] == [3]
+    others = (await client.get("/api/couriers?human=false")).json()
+    assert 3 not in [c["id"] for c in others] and len(others) == 3

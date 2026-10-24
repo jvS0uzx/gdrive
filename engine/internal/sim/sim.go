@@ -10,6 +10,7 @@ import (
 	"math"
 	"math/rand/v2"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -85,12 +86,22 @@ func PositionAt(p Path, elapsed float64) live.Point {
 	return live.Point{Lat: a[1] + (b[1]-a[1])*f, Lon: a[0] + (b[0]-a[0])*f}
 }
 
+const (
+	ControlKey   = "sim:control"
+	CommandsKey  = "sim:commands"
+	detourMeters = 700.0
+	controlEvery = 2 * time.Second
+)
+
 type courier struct {
 	id      int64
 	mu      sync.Mutex
 	pos     live.Point
 	path    *Path
 	elapsed float64
+	dest    *live.Point
+	frozen  time.Time
+	muted   time.Time
 }
 
 func (c *courier) follow(p *Path) {
@@ -99,20 +110,41 @@ func (c *courier) follow(p *Path) {
 	c.mu.Unlock()
 }
 
+func (c *courier) head(p *Path, dest live.Point) {
+	c.mu.Lock()
+	c.path, c.elapsed, c.dest = p, 0, &dest
+	c.mu.Unlock()
+}
+
 func (c *courier) stop() {
 	c.mu.Lock()
-	c.path = nil
+	c.path, c.dest = nil, nil
 	c.mu.Unlock()
 }
 
 func (c *courier) step(seconds float64) live.Point {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if c.path != nil {
+	if c.path != nil && !time.Now().Before(c.frozen) {
 		c.elapsed += seconds
 		c.pos = PositionAt(*c.path, c.elapsed)
 	}
 	return c.pos
+}
+
+func (c *courier) silent() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return time.Now().Before(c.muted)
+}
+
+func (c *courier) destination() *live.Point {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.path == nil {
+		return nil
+	}
+	return c.dest
 }
 
 func (c *courier) position() live.Point {
@@ -140,6 +172,7 @@ type Sim struct {
 	orders   map[int64]*order
 	stores   []Store
 	nearby   map[int64][]Address
+	rush     float64
 }
 
 func New(cfg Config, rdb *redis.Client, log *slog.Logger) *Sim {
@@ -152,6 +185,7 @@ func New(cfg Config, rdb *redis.Client, log *slog.Logger) *Sim {
 		couriers: map[int64]*courier{},
 		orders:   map[int64]*order{},
 		nearby:   map[int64][]Address{},
+		rush:     1,
 	}
 }
 
@@ -215,7 +249,7 @@ func (s *Sim) engine(path string) string { return strings.TrimRight(s.cfg.Engine
 
 func (s *Sim) load(ctx context.Context) ([]courierInfo, error) {
 	var couriers []courierInfo
-	if err := s.call(ctx, http.MethodGet, s.api(fmt.Sprintf("/api/couriers?limit=%d", s.cfg.Couriers)), nil, &couriers); err != nil {
+	if err := s.call(ctx, http.MethodGet, s.api(fmt.Sprintf("/api/couriers?human=false&limit=%d", s.cfg.Couriers)), nil, &couriers); err != nil {
 		return nil, err
 	}
 	if err := s.call(ctx, http.MethodGet, s.api("/api/stores?limit=5000"), nil, &s.stores); err != nil {
@@ -267,8 +301,70 @@ func (s *Sim) Run(ctx context.Context) error {
 	}
 	resumed := s.resume(ctx)
 	s.log.Info("simulação no ar", "entregadores", len(infos), "lojas", len(s.stores), "pedidos_retomados", resumed)
+	go s.controls(ctx)
+	go s.commands(ctx)
 	go s.customers(ctx)
 	return s.follow(ctx, last)
+}
+
+func (s *Sim) controls(ctx context.Context) {
+	tick := time.NewTicker(controlEvery)
+	defer tick.Stop()
+	for {
+		rush := 1.0
+		if v, err := s.rdb.HGet(ctx, ControlKey, "rush").Result(); err == nil {
+			if f, err := strconv.ParseFloat(v, 64); err == nil {
+				rush = max(1, min(10, f))
+			}
+		}
+		s.mu.Lock()
+		s.rush = rush
+		s.mu.Unlock()
+		select {
+		case <-ctx.Done():
+			return
+		case <-tick.C:
+		}
+	}
+}
+
+type Command struct {
+	Action  string `json:"action"`
+	Courier int64  `json:"courier_id"`
+	Seconds int    `json:"seconds"`
+}
+
+func (s *Sim) commands(ctx context.Context) {
+	sub := s.rdb.Subscribe(ctx, CommandsKey)
+	defer sub.Close()
+	for msg := range sub.Channel() {
+		var cmd Command
+		if json.Unmarshal([]byte(msg.Payload), &cmd) != nil {
+			continue
+		}
+		s.apply(ctx, cmd)
+	}
+}
+
+func (s *Sim) apply(ctx context.Context, cmd Command) {
+	c, ours := s.couriers[cmd.Courier]
+	if !ours {
+		return
+	}
+	until := time.Now().Add(time.Duration(cmd.Seconds) * time.Second)
+	s.log.Info("comando da simulação", "acao", cmd.Action, "courier", cmd.Courier, "segundos", cmd.Seconds)
+	switch cmd.Action {
+	case "sem_sinal":
+		c.mu.Lock()
+		c.muted = until
+		c.mu.Unlock()
+	case "parar":
+		c.mu.Lock()
+		c.frozen = until
+		c.mu.Unlock()
+	case "desviar":
+		go s.detour(ctx, c)
+	}
 }
 
 func busy(err error) bool {
@@ -395,6 +491,10 @@ func (s *Sim) drive(ctx context.Context, c *courier) {
 		tick := time.NewTicker(s.cfg.Tick)
 		for ctx.Err() == nil {
 			p := c.step(s.cfg.Tick.Seconds() * s.cfg.Speed)
+			if c.silent() {
+				<-tick.C
+				continue
+			}
 			data, _ := json.Marshal(p)
 			wctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 			err := conn.Write(wctx, websocket.MessageText, data)
@@ -411,7 +511,10 @@ func (s *Sim) drive(ctx context.Context, c *courier) {
 
 func (s *Sim) customers(ctx context.Context) {
 	for ctx.Err() == nil {
-		wait := s.between(s.cfg.OrderEvery/2, s.cfg.OrderEvery*3/2)
+		s.mu.Lock()
+		rush := s.rush
+		s.mu.Unlock()
+		wait := time.Duration(float64(s.between(s.cfg.OrderEvery/2, s.cfg.OrderEvery*3/2)) / rush)
 		select {
 		case <-ctx.Done():
 			return
@@ -510,7 +613,7 @@ func (s *Sim) handle(ctx context.Context, e event) {
 		s.mu.Unlock()
 		s.storeAccepts(ctx, e.Order, e.StoreID)
 	case "oferta_enviada":
-		if _, ours := s.couriers[e.Courier]; !ours {
+		if c, ours := s.couriers[e.Courier]; !ours || c.silent() {
 			return
 		}
 		r := s.roll()
@@ -531,6 +634,13 @@ func (s *Sim) handle(ctx context.Context, e event) {
 		o.courier = e.Courier
 		s.mu.Unlock()
 		go s.travel(ctx, c, *e.Store)
+	case "entregador_desatribuido":
+		s.mu.Lock()
+		o.courier, o.atStore, o.pickedUp = 0, false, false
+		s.mu.Unlock()
+		if c, ours := s.couriers[e.Courier]; ours {
+			c.stop()
+		}
 	case "entregador_chegou_na_loja":
 		s.mu.Lock()
 		o.atStore = true
@@ -591,14 +701,69 @@ type routeResponse struct {
 	Cumulative []float64 `json:"cumulative_seconds"`
 }
 
+func (s *Sim) route(ctx context.Context, from, to live.Point) (*Path, error) {
+	var r routeResponse
+	if err := s.call(ctx, http.MethodPost, s.engine("/route"), map[string]any{"from": from, "to": to}, &r); err != nil {
+		return nil, err
+	}
+	if len(r.Path.Coordinates) == 0 || len(r.Cumulative) != len(r.Path.Coordinates) {
+		return nil, errors.New("rota vazia")
+	}
+	return &Path{Coords: r.Path.Coordinates, Cumulative: r.Cumulative}, nil
+}
+
 func (s *Sim) travel(ctx context.Context, c *courier, to live.Point) {
 	from := c.position()
-	var r routeResponse
-	err := s.call(ctx, http.MethodPost, s.engine("/route"), map[string]any{"from": from, "to": to}, &r)
-	if err != nil || len(r.Path.Coordinates) == 0 || len(r.Cumulative) != len(r.Path.Coordinates) {
+	p, err := s.route(ctx, from, to)
+	if err != nil {
 		s.log.Warn("rota não calculada", "courier", c.id, "err", err)
-		c.follow(&Path{Coords: [][2]float64{{from.Lon, from.Lat}, {to.Lon, to.Lat}}, Cumulative: []float64{0, math.Max(1, live.Distance(from, to)/8)}})
+		p = &Path{Coords: [][2]float64{{from.Lon, from.Lat}, {to.Lon, to.Lat}}, Cumulative: []float64{0, math.Max(1, live.Distance(from, to)/8)}}
+	}
+	c.head(p, to)
+}
+
+func Waypoints(from, to live.Point, meters float64) [2]live.Point {
+	mid := live.Point{Lat: (from.Lat + to.Lat) / 2, Lon: (from.Lon + to.Lon) / 2}
+	scale := math.Cos(mid.Lat * math.Pi / 180)
+	dx, dy := (to.Lon-from.Lon)*scale, to.Lat-from.Lat
+	n := math.Hypot(dx, dy)
+	if n == 0 {
+		dx, dy, n = 1, 0, 1
+	}
+	off := meters / 111_320
+	side := func(sign float64) live.Point {
+		return live.Point{Lat: mid.Lat + sign*dx/n*off, Lon: mid.Lon - sign*dy/n*off/scale}
+	}
+	return [2]live.Point{side(1), side(-1)}
+}
+
+func Join(a, b *Path) *Path {
+	out := &Path{Coords: append([][2]float64{}, a.Coords...), Cumulative: append([]float64{}, a.Cumulative...)}
+	offset := a.Cumulative[len(a.Cumulative)-1]
+	for i := 1; i < len(b.Coords); i++ {
+		out.Coords = append(out.Coords, b.Coords[i])
+		out.Cumulative = append(out.Cumulative, offset+b.Cumulative[i])
+	}
+	return out
+}
+
+func (s *Sim) detour(ctx context.Context, c *courier) {
+	dest := c.destination()
+	if dest == nil {
 		return
 	}
-	c.follow(&Path{Coords: r.Path.Coordinates, Cumulative: r.Cumulative})
+	from := c.position()
+	for _, way := range Waypoints(from, *dest, detourMeters) {
+		first, err := s.route(ctx, from, way)
+		if err != nil {
+			continue
+		}
+		second, err := s.route(ctx, way, *dest)
+		if err != nil {
+			continue
+		}
+		c.head(Join(first, second), *dest)
+		return
+	}
+	s.log.Warn("desvio sem caminho pelos dois lados", "courier", c.id)
 }
