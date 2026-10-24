@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { LngLatBounds, Marker, type GeoJSONSource, type Map as MapLibre } from "maplibre-gl";
 import { fetchJourney, fetchOrder, type Journey, type Leg, type LiveOrder, type LngLat, type OrderDetail } from "./api";
-import { COLORS, EMPTY, panelPadding, pin, point, useCityMap } from "./cityMap";
+import { COLORS, EMPTY, pin, point, useCityMap } from "./cityMap";
 import { formatClock } from "./format";
-import { actorLabel, eventLabel, statusLabel, statusTone } from "./labels";
+import { actorLabel, eventLabel, statusFill, statusLabel, statusTone } from "./labels";
 import { useSocket } from "./live";
 import { FloatingCredit, LineSample, MapSurface } from "./MapParts";
 import { LEG_COLORS, addPlannedLayer, addWalkedLayers, journeyFeatures, lastPosition } from "./routeLayers";
@@ -171,7 +171,7 @@ export default function OrderTracking({ id }: { id: number }) {
       const bounds = new LngLatBounds(store, store).extend(home);
       const last = courierAt.current ?? lastPosition(journey.current);
       if (last) bounds.extend(last);
-      m.fitBounds(bounds, { padding: panelPadding(72), maxZoom: 16, duration: 0 });
+      m.fitBounds(bounds, { padding: 64, maxZoom: 16, duration: 0 });
     }
   }, [map, ready, detail]);
 
@@ -180,18 +180,22 @@ export default function OrderTracking({ id }: { id: number }) {
   const deliveredAt = detail?.timeline.find((e) => e.type === "pedido_entregue")?.at;
   const timeline = detail ? [...detail.timeline].reverse() : [];
 
+  const fill = shown === "entregue" ? "bg-origin" : statusFill(shown);
+
   return (
-    <div className="absolute inset-0">
-      <MapSurface container={container} ready={ready} />
-      <aside className="absolute left-4 top-4 flex max-h-[55%] w-[min(22rem,calc(100%-2rem))] flex-col overflow-y-auto rounded-xl border border-white/10 bg-panel/95 shadow-2xl backdrop-blur md:max-h-[calc(100%-2rem)] md:overflow-hidden">
-        <header className="px-4 pb-1 pt-4">
-          <div className="flex items-center justify-between gap-3">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
-              GDrive · pedido #{id}
+    <div className="absolute inset-0 flex flex-col md:flex-row">
+      <section className="relative h-[45dvh] shrink-0 md:order-2 md:h-auto md:min-w-0 md:flex-1" aria-label="Mapa do pedido">
+        <MapSurface container={container} ready={ready} />
+        <FloatingCredit />
+      </section>
+      <aside className="dock flex min-h-0 flex-1 flex-col overflow-y-auto border-t md:order-1 md:w-[22rem] md:flex-none md:border-r md:border-t-0">
+        <header className="px-5 pb-4 pt-5">
+          <div className="flex items-baseline justify-between gap-3">
+            <p className="text-xs text-muted">
+              Pedido <span className="mono">#{id}</span>
             </p>
             {!missing && (
-              <p className="flex items-center gap-1.5 text-[11px] text-zinc-400" aria-live="polite">
-                <span className={`size-2 rounded-full ${connected ? "bg-origin" : "bg-route animate-pulse"}`} />
+              <p className={`text-xs ${connected ? "text-muted" : "text-route"}`} aria-live="polite">
                 {connected ? "ao vivo" : "reconectando…"}
               </p>
             )}
@@ -199,32 +203,33 @@ export default function OrderTracking({ id }: { id: number }) {
           {cityError && <p className="mt-1 text-xs text-target">{cityError}</p>}
           {missing ? (
             <>
-              <h1 className="mt-1 text-base font-semibold text-zinc-100">Pedido não encontrado</h1>
-              <p className="mt-1 text-sm text-zinc-400">Confira o número no link que você recebeu.</p>
-              <Link to="/" className="mt-3 inline-block pb-3 text-sm text-route hover:underline">
-                Ir para a central
+              <h1 className="mt-2 text-[17px] font-semibold tracking-tight">Pedido não encontrado</h1>
+              <p className="mt-1 text-sm text-muted">Confira o número no link que você recebeu.</p>
+              <Link to="/" className="link mt-3 inline-block text-sm">
+                Voltar para a central
               </Link>
             </>
           ) : !detail ? (
-            <p className={`mt-2 pb-3 text-sm ${loadError ? "text-target" : "text-zinc-400"}`}>
-              {loadError ?? "Carregando o pedido…"}
-            </p>
+            <p className={`mt-2 text-sm ${loadError ? "text-target" : "text-muted"}`}>{loadError ?? "Carregando o pedido…"}</p>
           ) : (
             <>
-              <h1 data-testid="loja" className="mt-1 text-base font-semibold text-zinc-100">
+              <h1 data-testid="loja" className="mt-1 text-[17px] font-semibold tracking-tight">
                 {detail.store.name}
               </h1>
               <p
                 data-testid="status"
                 aria-live="polite"
-                className={`mt-3 text-2xl font-semibold leading-tight ${FINAL.has(shown) ? statusTone(shown) : "text-route"}`}
+                className={`mt-4 text-[26px] font-semibold leading-tight tracking-tight ${statusTone(shown)}`}
               >
                 {statusLabel(shown)}
               </p>
               {step !== undefined && (
                 <div className="mt-3 grid grid-cols-6 gap-1" aria-hidden="true">
                   {Array.from({ length: STEP_COUNT }, (_, i) => (
-                    <span key={i} className={`h-1 rounded-full ${i <= step ? "bg-route" : "bg-white/10"}`} />
+                    <span
+                      key={i}
+                      className={`h-1 rounded-full transition-colors duration-500 ${i <= step ? fill : "bg-raised"}`}
+                    />
                   ))}
                 </div>
               )}
@@ -234,50 +239,52 @@ export default function OrderTracking({ id }: { id: number }) {
 
         {detail && !missing && (
           <>
-            <dl className="mx-4 mt-3 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-xs">
-              <dt className="text-zinc-500">Entregador</dt>
-              <dd data-testid="entregador" className="text-zinc-200">
-                {detail.courier?.name ?? "Ainda não definido"}
-              </dd>
-              <dt className="text-zinc-500">{deliveredAt ? "Entregue" : "Previsão"}</dt>
-              <dd data-testid="previsao" className="tabular-nums text-zinc-200">
-                {deliveredAt
-                  ? `às ${formatClock(deliveredAt)}`
-                  : detail.promised_at
-                    ? `até ${formatClock(detail.promised_at)}`
-                    : "—"}
+            <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-2 border-y border-line px-5 py-4 text-[13px]">
+              <dt className="text-muted">Entregador</dt>
+              <dd data-testid="entregador">{detail.courier?.name ?? "ainda não definido"}</dd>
+              <dt className="text-muted">{deliveredAt ? "Entregue" : "Previsão"}</dt>
+              <dd data-testid="previsao">
+                {deliveredAt ? (
+                  <>
+                    às <span className="mono">{formatClock(deliveredAt)}</span>
+                  </>
+                ) : detail.promised_at ? (
+                  <>
+                    até <span className="mono">{formatClock(detail.promised_at)}</span>
+                  </>
+                ) : (
+                  "—"
+                )}
               </dd>
               {detail.prep_minutes !== null && (
                 <>
-                  <dt className="text-zinc-500">Preparo</dt>
-                  <dd className="tabular-nums text-zinc-200">{detail.prep_minutes} min</dd>
+                  <dt className="text-muted">Preparo</dt>
+                  <dd className="num">{detail.prep_minutes} min</dd>
                 </>
               )}
             </dl>
 
-            <section className="mt-4 flex min-h-40 flex-1 flex-col border-t border-white/10 md:min-h-0">
-              <h2 className="px-4 pt-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500">
-                Linha do tempo
-              </h2>
-              <ol data-testid="linha-do-tempo" className="min-h-0 flex-1 overflow-y-auto px-4 py-2">
+            <section className="flex min-h-48 flex-1 flex-col md:min-h-0">
+              <h2 className="section-title px-5 pt-4">Linha do tempo</h2>
+              <ol data-testid="linha-do-tempo" className="min-h-0 flex-1 overflow-y-auto px-5 py-2">
                 {timeline.map((e, i) => (
-                  <li key={timeline.length - i} className="flex gap-3 py-1 text-xs">
-                    <time dateTime={e.at} className="shrink-0 tabular-nums text-zinc-500">
+                  <li key={timeline.length - i} className="flex gap-3 py-1.5 text-[13px]">
+                    <time dateTime={e.at} className="mono shrink-0 pt-px text-xs text-faint">
                       {formatClock(e.at, true)}
                     </time>
-                    <span className={i === 0 ? "text-zinc-100" : "text-zinc-400"}>
+                    <span className={i === 0 ? "text-strong" : "text-muted"}>
                       {eventLabel(e.type)}
-                      <span className="text-zinc-600"> · {actorLabel(e.actor)}</span>
+                      <span className="ml-1.5 text-xs text-faint">{actorLabel(e.actor)}</span>
                     </span>
                   </li>
                 ))}
               </ol>
             </section>
 
-            <footer className="flex flex-wrap gap-x-3 gap-y-1 border-t border-white/10 px-4 py-2.5 text-[11px] text-zinc-400">
+            <footer className="flex flex-wrap gap-x-4 gap-y-1 border-t border-line px-5 py-3 text-[11px] text-faint">
               {[
-                ["Loja", COLORS.store],
-                ["Você", COLORS.customer],
+                ["loja", COLORS.store],
+                ["você", COLORS.customer],
               ].map(([label, color]) => (
                 <span key={label} className="flex items-center gap-1.5">
                   <span className="size-2 rounded-full" style={{ background: color }} />
@@ -288,15 +295,14 @@ export default function OrderTracking({ id }: { id: number }) {
                 <span key={leg} className="flex items-center gap-1.5">
                   <LineSample color={LEG_COLORS[leg]} dashed />
                   <LineSample color={LEG_COLORS[leg]} />
-                  {leg === "loja" ? "Até a loja" : "Até você"}
+                  {leg === "loja" ? "até a loja" : "até você"}
                 </span>
               ))}
-              <span className="w-full text-zinc-500">Tracejado é o caminho previsto; sólido, o que o entregador já fez.</span>
+              <span>tracejado é o previsto</span>
             </footer>
           </>
         )}
       </aside>
-      <FloatingCredit />
     </div>
   );
 }

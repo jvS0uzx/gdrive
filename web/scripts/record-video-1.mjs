@@ -84,9 +84,9 @@ const page = await context.newPage();
 const pause = (ms) => page.waitForTimeout(ms);
 
 const PLACES = {
-  map: { left: "calc(384px + (100% - 400px) / 2)", top: "60px", transform: "translateX(-50%)", textAlign: "center", maxWidth: "820px" },
-  center: { left: "50%", top: "60px", transform: "translateX(-50%)", textAlign: "center", maxWidth: "900px" },
-  between: { left: "calc((384px + 100% - 440px) / 2)", top: "60px", transform: "translateX(-50%)", textAlign: "center", maxWidth: "560px" },
+  map: { left: "calc(21rem + (100% - 21rem) / 2)", top: "64px", transform: "translateX(-50%)", textAlign: "center", maxWidth: "820px" },
+  center: { left: "50%", top: "64px", transform: "translateX(-50%)", textAlign: "center", maxWidth: "900px" },
+  between: { left: "calc((21rem + 100% - 26rem) / 2)", top: "64px", transform: "translateX(-50%)", textAlign: "center", maxWidth: "560px" },
   side: { left: "48px", top: "40%", transform: "none", textAlign: "left", maxWidth: "400px" },
 };
 
@@ -125,23 +125,23 @@ const mercator = (lat, lon) => [
   (lon + 180) / 360,
   (1 - Math.log(Math.tan(Math.PI / 4 + (lat * Math.PI) / 360)) / Math.PI) / 2,
 ];
-const mapTop = 44;
-const pad = { top: 32, bottom: 32, right: 32, left: 400 };
+const fitPadding = 24;
 const [minLon, minLat, maxLon, maxLat] = meta.bbox;
 const [bl, bb] = mercator(minLat, minLon);
 const [br, bt] = mercator(maxLat, maxLon);
-const fitW = viewport.width - pad.left - pad.right;
-const fitH = viewport.height - mapTop - pad.top - pad.bottom;
-const fitScale = Math.min(fitW / (br - bl), fitH / (bb - bt));
-const screen = ([lat, lon]) => {
+const screen = (box, [lat, lon]) => {
+  const fitW = box.width - 2 * fitPadding;
+  const fitH = box.height - 2 * fitPadding;
+  const fitScale = Math.min(fitW / (br - bl), fitH / (bb - bt));
   const [x, y] = mercator(lat, lon);
   return {
-    x: pad.left + fitW / 2 + (x - (bl + br) / 2) * fitScale,
-    y: mapTop + pad.top + fitH / 2 + (y - (bt + bb) / 2) * fitScale,
+    x: box.x + fitPadding + fitW / 2 + (x - (bl + br) / 2) * fitScale,
+    y: box.y + fitPadding + fitH / 2 + (y - (bt + bb) / 2) * fitScale,
   };
 };
 const clickAt = async (point) => {
-  const p = screen(point);
+  const box = await page.getByTestId("mapa").boundingBox();
+  const p = screen(box, point);
   await page.mouse.move(p.x, p.y, { steps: 12 });
   await pause(250);
   await page.mouse.click(p.x, p.y);
@@ -196,7 +196,7 @@ try {
         return [r.x + r.width / 2, r.y + r.height / 2];
       }),
     )
-  ).filter(([x, y]) => x > 400 && y > 80);
+  ).filter(([x, y]) => x > 360 && y > 80);
   const median = (values) => values.sort((a, b) => a - b)[Math.floor(values.length / 2)];
   const focus = { x: median(boxes.map((b) => b[0])), y: median(boxes.map((b) => b[1])) };
   await caption("Um card por pedido, que muda de cor a cada etapa", "map");

@@ -30,7 +30,7 @@ export function OsmCredit() {
     <>
       Mapa:{" "}
       <a
-        className="underline decoration-zinc-600 underline-offset-2 hover:text-zinc-300"
+        className="underline decoration-faint underline-offset-2 hover:text-strong"
         href="https://www.openstreetmap.org/copyright"
         target="_blank"
         rel="noreferrer"
@@ -44,7 +44,7 @@ export function OsmCredit() {
 
 export function FloatingCredit() {
   return (
-    <p className="absolute bottom-2 right-2 rounded-md border border-white/10 bg-panel/90 px-2 py-1 text-[11px] leading-snug text-zinc-500 backdrop-blur">
+    <p className="absolute bottom-0 right-0 rounded-tl-md bg-ink/80 px-2 py-1 text-[11px] leading-snug text-faint">
       <OsmCredit />
     </p>
   );

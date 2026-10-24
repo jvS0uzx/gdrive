@@ -65,24 +65,24 @@ const ACTOR_LABELS: Record<string, string> = {
 };
 
 const STATUS_TONES: Record<string, string> = {
-  aguardando_loja: "text-slate-300",
-  em_preparo: "text-violet-400",
-  a_caminho_da_loja: "text-yellow-300",
-  na_loja: "text-orange-400",
-  em_rota: "text-sky-400",
-  no_cliente: "text-pink-400",
-  entregue: "text-emerald-300",
+  aguardando_loja: "text-[#c3c9d1]",
+  em_preparo: "text-[#b39cf0]",
+  a_caminho_da_loja: "text-[#e2c15a]",
+  na_loja: "text-[#e59560]",
+  em_rota: "text-[#62b0e8]",
+  no_cliente: "text-[#e08ab3]",
+  entregue: "text-origin",
   recusado: "text-target",
   cancelado: "text-target",
 };
 
 const STATUS_FILLS: Record<string, string> = {
-  aguardando_loja: "bg-slate-300",
-  em_preparo: "bg-violet-400",
-  a_caminho_da_loja: "bg-yellow-300",
-  na_loja: "bg-orange-400",
-  em_rota: "bg-sky-400",
-  no_cliente: "bg-pink-400",
+  aguardando_loja: "bg-[#c3c9d1]",
+  em_preparo: "bg-[#b39cf0]",
+  a_caminho_da_loja: "bg-[#e2c15a]",
+  na_loja: "bg-[#e59560]",
+  em_rota: "bg-[#62b0e8]",
+  no_cliente: "bg-[#e08ab3]",
 };
 
 const readable = (code: string) => code.replaceAll("_", " ");
@@ -100,11 +100,11 @@ export function actorLabel(actor: string): string {
 }
 
 export function statusTone(status: string): string {
-  return STATUS_TONES[status] ?? "text-zinc-300";
+  return STATUS_TONES[status] ?? "text-muted";
 }
 
 export function statusFill(status: string): string {
-  return STATUS_FILLS[status] ?? "bg-zinc-400";
+  return STATUS_FILLS[status] ?? "bg-muted";
 }
 
 export function alertLabel(kind: string): string {

@@ -34,9 +34,9 @@ const JOURNEY_EVERY_MS = 5000;
 const SHOWN_CANDIDATES = 6;
 
 const STAGE_TITLES: Record<Stage, string> = {
-  loja: "entregador → loja",
-  cliente: "entregador → cliente",
-  fixo: "loja → cliente",
+  loja: "do entregador até a loja",
+  cliente: "do entregador até o cliente",
+  fixo: "da loja até o cliente",
 };
 
 const OUTCOMES: Record<Offer["status"], string> = {
@@ -77,7 +77,7 @@ function signed(value: number, format: (n: number) => string, epsilon: number): 
 
 
 function Heading({ children }: { children: string }) {
-  return <h3 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500">{children}</h3>;
+  return <h3 className="section-title">{children}</h3>;
 }
 
 function RouteTable({ alternatives }: { alternatives: RouteAlternatives | null }) {
@@ -95,7 +95,7 @@ function RouteTable({ alternatives }: { alternatives: RouteAlternatives | null }
   return (
     <table className="mt-2 w-full text-xs">
       <thead>
-        <tr className="text-left text-[11px] text-zinc-500">
+        <tr className="text-left text-[11px] text-faint">
           <th className="pb-1 font-normal">Rota</th>
           <th className="pb-1 text-right font-normal">Tempo</th>
           <th className="pb-1 pl-2 text-right font-normal">Distância</th>
@@ -107,24 +107,24 @@ function RouteTable({ alternatives }: { alternatives: RouteAlternatives | null }
           const option = alternatives?.[alt.key];
           const [time, distance] = option ? diff(option) : ["", ""];
           return (
-            <tr key={alt.key} data-testid={`alt-${alt.key}`} className="border-t border-white/5 align-top">
+            <tr key={alt.key} data-testid={`alt-${alt.key}`} className="border-t border-line/60 align-top">
               <td className="py-1.5 pr-2">
-                <span className="flex items-center gap-2 text-zinc-200">
+                <span className="flex items-center gap-2 text-strong">
                   <LineSample color={alt.color} dashed={alt.dashed} />
                   {alt.label}
                 </span>
               </td>
               {option ? (
                 <>
-                  <td className="py-1.5 text-right tabular-nums text-zinc-100">{formatDuration(option.seconds)}</td>
-                  <td className="py-1.5 pl-2 text-right tabular-nums text-zinc-300">{formatDistance(option.meters)}</td>
-                  <td className="py-1.5 pl-2 text-right tabular-nums text-zinc-400">
+                  <td className="py-1.5 text-right tabular-nums text-strong">{formatDuration(option.seconds)}</td>
+                  <td className="py-1.5 pl-2 text-right tabular-nums text-muted">{formatDistance(option.meters)}</td>
+                  <td className="py-1.5 pl-2 text-right tabular-nums text-muted">
                     {time}
                     {distance && <span className="block">{distance}</span>}
                   </td>
                 </>
               ) : (
-                <td colSpan={3} className="py-1.5 text-right text-zinc-500">
+                <td colSpan={3} className="py-1.5 text-right text-faint">
                   {alternatives ? "sem rota possível sem via expressa" : "…"}
                 </td>
               )}
@@ -177,12 +177,12 @@ function Operation({ orderId, order, status }: { orderId: number; order: LiveOrd
       {alerts.length > 0 && (
         <ul className="mt-2 space-y-1.5" data-testid="alertas-do-pedido">
           {alerts.map(([kind, at]) => (
-            <li key={kind} className="rounded-md border border-target/40 bg-target/10 px-2 py-1.5 text-xs">
+            <li key={kind} className="rounded-r-md border-l-2 border-target bg-target/[0.07] py-1.5 pl-2.5 pr-2 text-xs">
               <p className="flex items-baseline justify-between gap-2">
                 <span className="font-medium text-target">{alertLabel(kind)}</span>
-                {at ? <span className="text-[11px] text-zinc-500">desde {formatClock(new Date(at).toISOString(), true)}</span> : null}
+                {at ? <span className="text-[11px] text-faint">desde {formatClock(new Date(at).toISOString(), true)}</span> : null}
               </p>
-              <p className="mt-0.5 text-[11px] text-zinc-300">{alertHint(kind)}</p>
+              <p className="mt-0.5 text-[11px] text-muted">{alertHint(kind)}</p>
             </li>
           ))}
         </ul>
@@ -194,7 +194,7 @@ function Operation({ orderId, order, status }: { orderId: number; order: LiveOrd
             disabled={busy}
             onClick={() => act(() => unassignOrder(orderId), `#${courier} liberado; o despacho procura outro entregador.`)}
             data-testid="desatribuir"
-            className="rounded-md border border-target/50 px-2.5 py-1 text-xs text-target hover:bg-target/10 disabled:opacity-50"
+            className="btn btn-danger"
           >
             Desatribuir o #{courier}
           </button>
@@ -205,7 +205,7 @@ function Operation({ orderId, order, status }: { orderId: number; order: LiveOrd
             disabled={busy}
             onClick={loadCandidates}
             data-testid="atribuir"
-            className="rounded-md border border-white/15 px-2.5 py-1 text-xs text-zinc-200 hover:bg-white/5 disabled:opacity-50"
+            className="btn"
           >
             {candidates ? "Atualizar candidatos" : "Atribuir na mão"}
           </button>
@@ -213,19 +213,19 @@ function Operation({ orderId, order, status }: { orderId: number; order: LiveOrd
       </div>
       {canAssign && candidates && (
         candidates.length === 0 ? (
-          <p className="mt-2 text-[11px] text-zinc-500">Nenhum entregador livre com sinal até 6 km da loja.</p>
+          <p className="mt-2 text-[11px] text-faint">Nenhum entregador livre com sinal até 6 km da loja.</p>
         ) : (
           <ol className="mt-2 grid grid-cols-[1fr_auto_auto_auto] items-center gap-x-3 gap-y-1 text-xs" data-testid="candidatos-manuais">
             {candidates.map((c) => (
-              <li key={c.courier_id} className="contents text-zinc-300">
+              <li key={c.courier_id} className="contents text-muted">
                 <span>#{c.courier_id}</span>
                 <span className="text-right tabular-nums">{formatDuration(c.eta_seconds)}</span>
-                <span className="text-right tabular-nums text-zinc-500">{formatMeters(c.distance_m)}</span>
+                <span className="text-right tabular-nums text-faint">{formatMeters(c.distance_m)}</span>
                 <button
                   type="button"
                   disabled={busy}
                   onClick={() => act(() => assignOrder(orderId, c.courier_id), `Pedido entregue ao #${c.courier_id}.`)}
-                  className="rounded border border-white/15 px-1.5 py-0.5 text-[11px] text-route hover:bg-white/5 disabled:opacity-50"
+                  className="btn h-6 px-2 text-xs"
                 >
                   Atribuir
                 </button>
@@ -236,12 +236,14 @@ function Operation({ orderId, order, status }: { orderId: number; order: LiveOrd
       )}
       {canFault && (
         <div className="mt-3">
-          <p className="mb-1.5 text-[11px] text-zinc-500">Simular falha do entregador #{courier} (só os da simulação obedecem):</p>
+          <p className="meta mb-2">
+            Simular falha no <span className="mono">#{courier}</span>
+          </p>
           <CourierFaults courierId={courier} />
         </div>
       )}
       {message && (
-        <p className={`mt-2 text-[11px] ${message.error ? "text-target" : "text-zinc-400"}`} data-testid="operacao-resultado">
+        <p className={`mt-2 text-[11px] ${message.error ? "text-target" : "text-muted"}`} data-testid="operacao-resultado">
           {message.text}
         </p>
       )}
@@ -259,27 +261,27 @@ function OfferCard({ offer, index, current }: { offer: Offer; index: number; cur
   const nearestRank = nearest ? candidates.indexOf(nearest) + 1 : 0;
   const shown = candidates.slice(0, SHOWN_CANDIDATES);
   return (
-    <div className="mt-2 rounded-lg border border-white/10 px-3 py-2" data-testid="oferta">
-      <p className="text-[11px] text-zinc-500">
-        Oferta {index} · raio {formatDistance(offer.radius_m)} · {formatClock(offer.created_at, true)}
+    <div className="mt-3 border-l-2 border-line pl-3" data-testid="oferta">
+      <p className="text-[11px] text-faint">
+        Oferta {index}, raio de {formatDistance(offer.radius_m)}, às <span className="mono">{formatClock(offer.created_at, true)}</span>
       </p>
-      <p className="mt-0.5 text-xs text-zinc-200">
+      <p className="mt-0.5 text-xs text-strong">
         Para o entregador #{offer.courier_id}, a {formatDuration(offer.eta_seconds)} da loja:{" "}
-        <span className={offer.status === "aceita" ? "text-origin" : offer.status === "pendente" ? "text-zinc-300" : "text-target"}>
+        <span className={offer.status === "aceita" ? "text-origin" : offer.status === "pendente" ? "text-muted" : "text-target"}>
           {OUTCOMES[offer.status]}
         </span>
         {offer.status === "aceita" && current !== offer.courier_id && (
-          <span className="text-zinc-500"> · depois liberado pela central</span>
+          <span className="text-faint">, depois liberado pela central</span>
         )}
       </p>
       {candidates.length === 0 ? (
-        <p className="mt-1.5 text-[11px] text-zinc-500" data-testid="sem-candidatos">
+        <p className="mt-1.5 text-[11px] text-faint" data-testid="sem-candidatos">
           sem dados dos candidatos (pedido anterior a esta versão)
         </p>
       ) : (
         <>
           <ol className="mt-2 grid grid-cols-[auto_1fr_auto_auto] gap-x-3 gap-y-0.5 text-xs" data-testid="candidatos">
-            <li className="contents text-[11px] text-zinc-500">
+            <li className="contents text-[11px] text-faint">
               <span>Pos.</span>
               <span>Entregador</span>
               <span className="text-right">pelas ruas</span>
@@ -288,12 +290,12 @@ function OfferCard({ offer, index, current }: { offer: Offer; index: number; cur
             {shown.map((c, i) => {
               const recipient = c.courier_id === offer.courier_id;
               return (
-                <li key={c.courier_id} className={`contents ${recipient ? "text-zinc-100" : "text-zinc-400"}`}>
+                <li key={c.courier_id} className={`contents ${recipient ? "text-strong" : "text-muted"}`}>
                   <span className="tabular-nums">{i + 1}º</span>
                   <span className="truncate">
                     #{c.courier_id}
-                    {recipient && <span className="text-route"> · recebeu</span>}
-                    {c === nearest && nearest !== fastest && <span className="text-zinc-500"> · mais perto</span>}
+                    {recipient && <span className="ml-1.5 text-route">recebeu</span>}
+                    {c === nearest && nearest !== fastest && <span className="ml-1.5 text-faint">mais perto</span>}
                   </span>
                   <span className="text-right tabular-nums">{formatDuration(c.eta_seconds)}</span>
                   <span className="text-right tabular-nums">{formatMeters(c.distance_m)}</span>
@@ -302,10 +304,10 @@ function OfferCard({ offer, index, current }: { offer: Offer; index: number; cur
             })}
           </ol>
           {candidates.length > shown.length && (
-            <p className="mt-1 text-[11px] text-zinc-500">+{candidates.length - shown.length} candidatos mais lentos</p>
+            <p className="mt-1 text-[11px] text-faint">+{candidates.length - shown.length} candidatos mais lentos</p>
           )}
           {fastest && nearest && nearest !== fastest && (
-            <p className="mt-2 rounded-md border border-route/40 bg-route/10 px-2 py-1.5 text-[11px] leading-snug text-zinc-200" data-testid="mais-perto-nao-mais-rapido">
+            <p className="mt-2.5 rounded-r-md border-l-2 border-route bg-route/[0.07] py-1.5 pl-2.5 pr-2 text-xs leading-snug" data-testid="mais-perto-nao-mais-rapido">
               O #{nearest.courier_id} estava mais perto em linha reta ({formatMeters(nearest.distance_m)}, {nearestRank}º no
               ranking), mas levaria {formatDuration(nearest.eta_seconds)} pelas ruas:{" "}
               {formatDuration(nearest.eta_seconds - fastest.eta_seconds)} a mais que o #{fastest.courier_id}, a{" "}
@@ -428,9 +430,9 @@ export default function OrderAnalysis({ orderId, order, courierAt, map, ready, o
     const { store: s, customer: c } = points.current;
     if (s) bounds.extend(lngLat(s));
     if (c) bounds.extend(lngLat(c));
-    const wide = window.innerWidth > 1100;
+    const wide = window.innerWidth > 900;
     m.fitBounds(bounds, {
-      padding: wide ? { top: 48, bottom: 48, left: 400, right: 450 } : 32,
+      padding: wide ? 56 : 28,
       maxZoom: 15.5,
       duration: 600,
     });
@@ -443,49 +445,51 @@ export default function OrderAnalysis({ orderId, order, courierAt, map, ready, o
   return (
     <aside
       data-testid="analise"
-      className="absolute right-4 top-4 flex max-h-[calc(100%-4.5rem)] w-[min(26rem,calc(100%-2rem))] flex-col overflow-hidden rounded-xl border border-white/10 bg-panel/95 shadow-2xl backdrop-blur max-md:inset-x-4 max-md:bottom-12 max-md:top-auto max-md:max-h-[45%] max-md:w-auto"
+      className="dock flex flex-col border-t md:order-3 md:w-[26rem] md:shrink-0 md:overflow-hidden md:border-l md:border-t-0"
     >
-      <header className="flex items-start justify-between gap-3 border-b border-white/10 px-4 py-3">
+      <header className="flex items-start justify-between gap-3 border-b border-line px-4 py-3">
         <div className="min-w-0">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">Análise do pedido #{orderId}</p>
-          <h2 className="mt-0.5 truncate text-base font-semibold text-zinc-100">{storeName}</h2>
+          <p className="text-xs text-muted">
+            Análise do pedido <span className="mono">#{orderId}</span>
+          </p>
+          <h2 className="mt-0.5 truncate text-[17px] font-semibold tracking-tight">{storeName}</h2>
           {status && (
-            <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs">
-              <span className={`h-2.5 w-3.5 rounded-sm ${statusFill(status)}`} />
+            <p className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[13px]">
+              <span className={`size-2 rounded-[2px] ${statusFill(status)}`} />
               <span className={statusTone(status)}>{statusLabel(status)}</span>
-              {courierName && <span className="text-zinc-400">· {courierName}</span>}
+              {courierName && <span className="text-muted">com {courierName}</span>}
             </p>
           )}
-          <Link to={`/pedido/${orderId}`} className="mt-2 inline-block text-xs text-route hover:underline">
-            Abrir acompanhamento →
+          <Link to={`/pedido/${orderId}`} className="link mt-2 inline-block text-xs">
+            Abrir acompanhamento
           </Link>
         </div>
         <button
           type="button"
           onClick={onClose}
-          className="-mr-1 rounded px-1.5 text-lg leading-none text-zinc-500 hover:text-zinc-200"
+          className="-mr-1 rounded px-1.5 text-xl leading-none text-faint transition-colors hover:text-strong"
           aria-label="Fechar análise"
         >
           ×
         </button>
       </header>
 
-      <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-4 py-3">
+      <div className="space-y-6 px-4 py-4 md:min-h-0 md:flex-1 md:overflow-y-auto">
         <Operation orderId={orderId} order={order} status={status} />
 
         <section data-testid="analise-rotas">
           <Heading>Rota escolhida vs alternativas</Heading>
-          <p className="mt-1 text-[11px] text-zinc-500">Trecho atual: {STAGE_TITLES[stage]}</p>
+          <p className="meta mt-0.5">Trecho atual, {STAGE_TITLES[stage]}</p>
           {routeError ? (
             <p className="mt-2 text-xs text-target">{routeError}</p>
           ) : !canRoute && !alternatives ? (
-            <p className="mt-2 text-xs text-zinc-500">Aguardando a posição do entregador…</p>
+            <p className="mt-2 text-xs text-faint">Aguardando a posição do entregador…</p>
           ) : (
             <RouteTable alternatives={alternatives} />
           )}
           {alternatives && routed && (
-            <p className="mt-1 text-[11px] text-zinc-600">
-              Calculado às {formatClock(routed.at, true)}; recalcula quando a etapa muda.
+            <p className="mt-1.5 text-[11px] text-faint">
+              calculado às <span className="mono">{formatClock(routed.at, true)}</span>
             </p>
           )}
         </section>
@@ -495,9 +499,9 @@ export default function OrderAnalysis({ orderId, order, courierAt, map, ready, o
           {dispatchError ? (
             <p className="mt-2 text-xs text-target">{dispatchError}</p>
           ) : !dispatch ? (
-            <p className="mt-2 text-xs text-zinc-500">Carregando as ofertas…</p>
+            <p className="mt-2 text-xs text-faint">Carregando as ofertas…</p>
           ) : offers.length === 0 ? (
-            <p className="mt-2 text-xs text-zinc-500">Nenhuma oferta enviada ainda.</p>
+            <p className="mt-2 text-xs text-faint">Nenhuma oferta enviada ainda.</p>
           ) : (
             offers.map((offer, i) => (
               <OfferCard key={offer.id} offer={offer} index={i + 1} current={order?.courier_id ?? detail?.courier?.id} />
@@ -506,7 +510,7 @@ export default function OrderAnalysis({ orderId, order, courierAt, map, ready, o
           {order?.courier_id !== undefined &&
             dispatch &&
             !offers.some((o) => o.status === "aceita" && o.courier_id === order.courier_id) && (
-              <p className="mt-2 text-[11px] text-zinc-400" data-testid="atribuido-pela-central">
+              <p className="mt-2 text-[11px] text-muted" data-testid="atribuido-pela-central">
                 O #{order.courier_id} foi atribuído pela central, sem oferta.
               </p>
             )}
@@ -519,51 +523,46 @@ export default function OrderAnalysis({ orderId, order, courierAt, map, ready, o
             const off = deviation(journey?.track[leg], plan?.path);
             const done = LEG_DONE[leg].includes(status) || (leg === "loja" && Boolean(journey?.plan.cliente));
             return (
-              <div key={leg} className="mt-2 text-xs" data-testid={`trecho-${leg}`}>
-                <p className="flex items-center gap-1.5 text-zinc-200">
+              <div key={leg} className="mt-3 text-[13px]" data-testid={`trecho-${leg}`}>
+                <p className="flex items-center gap-1.5">
                   <LineSample color={LEG_COLORS[leg]} dashed />
                   <LineSample color={LEG_COLORS[leg]} />
-                  {LEG_TITLES[leg]}
+                  <span className="font-medium">{LEG_TITLES[leg]}</span>
+                  {plan && !done && <span className="text-xs text-faint">{active ? "em andamento" : "interrompido"}</span>}
                 </p>
-                <p className="mt-0.5 pl-[2.6rem] tabular-nums text-zinc-400">
-                  {!journey ? (
-                    "…"
-                  ) : !plan ? (
-                    "ainda não começou"
-                  ) : (
-                    <>
-                      {done ? "" : active ? "em andamento · " : "interrompido · "}
-                      prevista {formatDistance(plan.meters)} · desvio máximo{" "}
-                      <span className="text-zinc-100" data-testid={`desvio-${leg}`}>
-                        {Math.round(off.max)} m
+                {!journey ? (
+                  <p className="mt-1 pl-[2.6rem] text-xs text-faint">…</p>
+                ) : !plan ? (
+                  <p className="mt-1 pl-[2.6rem] text-xs text-faint">ainda não começou</p>
+                ) : (
+                  <dl className="mt-1 grid grid-cols-[auto_1fr] gap-x-4 gap-y-0.5 pl-[2.6rem] text-xs">
+                    <dt className="text-muted">prevista</dt>
+                    <dd className="num">{formatDistance(plan.meters)}</dd>
+                    <dt className="text-muted">desvio máximo</dt>
+                    <dd className="num" data-testid={`desvio-${leg}`}>
+                      {Math.round(off.max)} m
+                    </dd>
+                    <dt className="text-muted">perto da rota</dt>
+                    <dd>
+                      <span className="num">
+                        {off.inside}/{off.total}
                       </span>{" "}
-                      · {off.inside} de {off.total} posições a até {OFF_ROUTE_METERS} m da rota
-                    </>
-                  )}
-                </p>
+                      <span className="text-faint">posições a até {OFF_ROUTE_METERS} m</span>
+                    </dd>
+                  </dl>
+                )}
               </div>
             );
           })}
         </section>
 
-        <p className="-mt-3 text-[11px] leading-snug text-zinc-600">
-          Desvio é a distância de cada posição recebida até a rota prevista; o maior valor diz se o entregador saiu do caminho.
-        </p>
-
-        <section className="border-t border-white/10 pt-3">
-          <Heading>Legenda das linhas</Heading>
-          <ul className="mt-2 space-y-1 text-[11px] text-zinc-400">
-            {ALTERNATIVES.map((alt) => (
-              <li key={alt.key} className="flex items-center gap-2">
-                <LineSample color={alt.color} dashed={alt.dashed} />
-                {alt.label}, do trecho atual
-              </li>
-            ))}
+        <section className="border-t border-line pt-3">
+          <ul className="space-y-1 text-[11px] text-faint">
             {LEGS.map((leg) => (
               <li key={leg} className="flex items-center gap-2">
                 <LineSample color={LEG_COLORS[leg]} dashed />
                 <LineSample color={LEG_COLORS[leg]} />
-                {LEG_TITLES[leg]}: prevista tracejada, andada sólida
+                {LEG_TITLES[leg].toLowerCase()}: tracejado é o previsto, sólido é o que ele andou
               </li>
             ))}
           </ul>

@@ -1,4 +1,4 @@
-import { Fragment, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import Central from "./Central";
 import CourierApp from "./CourierApp";
 import CourierPicker from "./CourierPicker";
@@ -15,8 +15,8 @@ function NavLink({ to, active, children }: { to: string; active: boolean; childr
     <Link
       to={to}
       aria-current={active ? "page" : undefined}
-      className={`shrink-0 rounded-md px-1.5 py-1 transition-colors sm:px-2 ${
-        active ? "bg-white/10 text-zinc-100" : "text-zinc-400 hover:text-zinc-200"
+      className={`relative flex h-full shrink-0 items-center px-2.5 text-[13px] font-medium transition-colors after:absolute after:inset-x-2.5 after:bottom-0 after:h-0.5 after:rounded-full ${
+        active ? "text-strong after:bg-route" : "text-muted hover:text-strong after:bg-transparent"
       }`}
     >
       {children}
@@ -24,13 +24,24 @@ function NavLink({ to, active, children }: { to: string; active: boolean; childr
   );
 }
 
+function Mark() {
+  return (
+    <svg viewBox="0 0 32 32" className="size-6 shrink-0" aria-hidden="true">
+      <rect width="32" height="32" rx="7" className="fill-raised" />
+      <path d="M8 23c5 0 5-12 10-12s4 5 7-2" fill="none" className="stroke-route" strokeWidth="2.6" strokeLinecap="round" />
+      <circle cx="8" cy="23" r="2.6" className="fill-strong" />
+      <circle cx="25" cy="9" r="2.6" className="fill-route" />
+    </svg>
+  );
+}
+
 function NotFound() {
   return (
     <div className="grid h-full place-items-center p-6 text-center">
       <div>
-        <p className="text-base font-semibold text-zinc-100">Página não encontrada</p>
-        <Link to="/" className="mt-2 inline-block text-sm text-route hover:underline">
-          Ir para a central
+        <p className="text-base font-semibold text-strong">Página não encontrada</p>
+        <Link to="/" className="link mt-2 inline-block text-sm">
+          Voltar para a central
         </Link>
       </div>
     </div>
@@ -67,28 +78,20 @@ function page(path: string): ReactNode {
 export default function App() {
   const path = usePath();
   return (
-    <div className="flex h-full flex-col font-sans text-zinc-200">
-      <header className="flex h-11 shrink-0 items-center gap-3 border-b border-white/10 bg-panel px-3 sm:gap-4 sm:px-4">
-        <Link
-          to="/"
-          className="hidden text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-300 sm:block"
-        >
-          GDrive
+    <div className="flex h-full flex-col font-sans text-strong">
+      <header className="flex h-12 shrink-0 items-stretch gap-2 border-b border-line bg-panel pl-3 pr-2 sm:gap-6 sm:px-4">
+        <Link to="/" className="flex shrink-0 items-center gap-2" aria-label="GDrive, ir para a central">
+          <Mark />
+          <span className="hidden text-[15px] font-semibold tracking-tight sm:inline">GDrive</span>
         </Link>
-        <nav aria-label="Telas" className="flex min-w-0 items-center gap-1 overflow-x-auto text-sm">
-          {SECTIONS.map((section, i) => (
-            <Fragment key={section.to}>
-              {i > 0 && (
-                <span className="hidden text-zinc-600 sm:inline" aria-hidden="true">
-                  ·
-                </span>
-              )}
-              <NavLink to={section.to} active={section.active(path)}>
-                {section.label}
-              </NavLink>
-            </Fragment>
+        <nav aria-label="Telas" className="flex min-w-0 items-stretch overflow-x-auto">
+          {SECTIONS.map((section) => (
+            <NavLink key={section.to} to={section.to} active={section.active(path)}>
+              {section.label}
+            </NavLink>
           ))}
         </nav>
+        <p className="ml-auto hidden shrink-0 items-center text-xs text-faint lg:flex">Salvador, BA</p>
       </header>
       <main className="relative min-h-0 flex-1">{page(path)}</main>
     </div>

@@ -7,28 +7,28 @@ import { fetchMeta, fetchStreets, type CityMeta, type LngLat } from "./api";
 setWorkerUrl(workerUrl);
 
 export const COLORS = {
-  ink: "#0d1016",
-  arrow: "#9aa4b2",
-  route: "#ffb020",
-  origin: "#3ddc84",
-  target: "#ff5d5d",
-  free: "#3ddc84",
-  busy: "#ffb020",
-  store: "#a78bfa",
-  customer: "#38bdf8",
-  shortest: "#e4e4e7",
-  noExpressway: "#2dd4bf",
-  storeDot: "#71717a",
-  customerDot: "#a1a1aa",
-  highlight: "#f4f4f5",
+  ink: "#0e1115",
+  arrow: "#9aa2ac",
+  route: "#eea83a",
+  origin: "#4cc38a",
+  target: "#ec6a5e",
+  free: "#4cc38a",
+  busy: "#eea83a",
+  store: "#b39cf0",
+  customer: "#62b0e8",
+  shortest: "#e7e9ec",
+  noExpressway: "#45c7b4",
+  storeDot: "#727a84",
+  customerDot: "#9aa2ac",
+  highlight: "#e7e9ec",
 };
 
 export const ROADS = [
-  { id: "travessa", label: "Travessa", color: "#2a313b", width: [0.3, 0.9, 3] },
-  { id: "rua", label: "Rua", color: "#3a424f", width: [0.4, 1.2, 4] },
-  { id: "coletora", label: "Coletora", color: "#555f6e", width: [0.7, 1.8, 5.5] },
-  { id: "avenida", label: "Avenida", color: "#7d8798", width: [1.1, 2.6, 8] },
-  { id: "expressa", label: "Via expressa", color: "#a89870", width: [1.6, 3.4, 10] },
+  { id: "travessa", label: "Travessa", color: "#252b33", width: [0.3, 0.9, 3] },
+  { id: "rua", label: "Rua", color: "#343b45", width: [0.4, 1.2, 4] },
+  { id: "coletora", label: "Coletora", color: "#4b545f", width: [0.7, 1.8, 5.5] },
+  { id: "avenida", label: "Avenida", color: "#6f7986", width: [1.1, 2.6, 8] },
+  { id: "expressa", label: "Via expressa", color: "#9a8a62", width: [1.6, 3.4, 10] },
 ] as const;
 
 export const EMPTY: FeatureCollection = { type: "FeatureCollection", features: [] };
@@ -57,8 +57,8 @@ export function metersBetween(a: LngLat, b: LngLat): number {
   return 2 * 6_371_000 * Math.asin(Math.sqrt(h));
 }
 
-export function panelPadding(margin = 32, width = window.innerWidth): PaddingOptions | number {
-  return width > 900 ? { top: margin, bottom: margin, right: margin, left: 368 + margin } : margin;
+export function panelPadding(margin = 32): PaddingOptions | number {
+  return margin;
 }
 
 export function pin(content: string, color: string): HTMLElement {
@@ -124,6 +124,7 @@ export function useCityMap(setup: (map: MapLibre) => void) {
   useEffect(() => {
     let cancelled = false;
     let instance: MapLibre | undefined;
+    let observer: ResizeObserver | undefined;
     Promise.all([fetchMeta(), fetchStreets()])
       .then(([m, streets]) => {
         if (cancelled || !container.current) return;
@@ -136,13 +137,15 @@ export function useCityMap(setup: (map: MapLibre) => void) {
             layers: [{ id: "fundo", type: "background", paint: { "background-color": COLORS.ink } }],
           },
           bounds: m.bbox,
-          fitBoundsOptions: { padding: panelPadding(32, container.current.clientWidth) },
+          fitBoundsOptions: { padding: 24 },
           attributionControl: false,
           dragRotate: false,
           maxZoom: 18,
         });
         instance = created;
         map.current = created;
+        observer = new ResizeObserver(() => created.resize());
+        observer.observe(container.current);
         created.on("load", () => {
           addStreets(created, streets);
           setup(created);
@@ -156,6 +159,7 @@ export function useCityMap(setup: (map: MapLibre) => void) {
       });
     return () => {
       cancelled = true;
+      observer?.disconnect();
       instance?.remove();
       map.current = null;
     };

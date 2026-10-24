@@ -1,13 +1,23 @@
 @import "tailwindcss";
+@import "@fontsource-variable/ibm-plex-sans";
+@import "@fontsource/ibm-plex-mono/400.css";
+@import "@fontsource/ibm-plex-mono/500.css";
+@import "@fontsource/ibm-plex-mono/600.css";
 @import "maplibre-gl/dist/maplibre-gl.css";
 
 @theme {
-  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
-  --color-ink: #0d1016;
-  --color-panel: #151a22;
-  --color-route: #ffb020;
-  --color-origin: #3ddc84;
-  --color-target: #ff5d5d;
+  --font-sans: "IBM Plex Sans Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+  --color-ink: #0e1115;
+  --color-panel: #14181d;
+  --color-raised: #1b2027;
+  --color-line: #262c34;
+  --color-strong: #e7e9ec;
+  --color-muted: #9aa2ac;
+  --color-faint: #6b737d;
+  --color-route: #eea83a;
+  --color-origin: #4cc38a;
+  --color-target: #ec6a5e;
 }
 
 html,
@@ -16,4 +26,116 @@ body,
   height: 100%;
   margin: 0;
   background: var(--color-ink);
+}
+
+body {
+  -webkit-font-smoothing: antialiased;
+  font-feature-settings: "ss01";
+}
+
+p,
+li {
+  text-wrap: pretty;
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-route);
+  outline-offset: 2px;
+}
+
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline-color: var(--color-muted);
+}
+
+@utility num {
+  font-variant-numeric: tabular-nums;
+}
+
+@utility mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+@utility section-title {
+  font-size: 0.8125rem;
+  line-height: 1.25rem;
+  font-weight: 600;
+  color: var(--color-strong);
+}
+
+@utility meta {
+  font-size: 0.75rem;
+  line-height: 1.125rem;
+  color: var(--color-muted);
+}
+
+@utility btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.375rem;
+  height: 2rem;
+  padding-inline: 0.75rem;
+  border-radius: 0.375rem;
+  border: 1px solid var(--color-line);
+  background: var(--color-raised);
+  color: var(--color-strong);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  white-space: nowrap;
+  transition:
+    background-color 150ms,
+    border-color 150ms,
+    transform 100ms;
+  &:hover:not(:disabled) {
+    background: #222832;
+    border-color: #323a44;
+  }
+  &:active:not(:disabled) {
+    transform: translateY(1px);
+  }
+  &:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+}
+
+@utility btn-primary {
+  background: var(--color-route);
+  border-color: var(--color-route);
+  color: var(--color-ink);
+  font-weight: 600;
+  &:hover:not(:disabled) {
+    background: #f5b552;
+    border-color: #f5b552;
+  }
+}
+
+@utility btn-danger {
+  color: var(--color-target);
+  border-color: color-mix(in srgb, var(--color-target) 40%, transparent);
+  background: transparent;
+  &:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--color-target) 10%, transparent);
+    border-color: color-mix(in srgb, var(--color-target) 60%, transparent);
+  }
+}
+
+@utility link {
+  color: var(--color-strong);
+  text-decoration: underline;
+  text-decoration-color: var(--color-faint);
+  text-underline-offset: 3px;
+  transition: text-decoration-color 150ms;
+  &:hover {
+    text-decoration-color: var(--color-strong);
+  }
+}
+
+@utility dock {
+  background: var(--color-panel);
+  border-color: var(--color-line);
 }

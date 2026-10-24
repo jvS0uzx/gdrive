@@ -35,7 +35,7 @@ interface Card {
 const PICKABLE = ["entregadores", "lojas", "clientes"];
 const STATS_EVERY_MS = 5000;
 const NAMES_FROM_ZOOM = 14;
-const CARD_BODY = "relative rounded-md px-1.5 py-0.5 text-ink shadow-lg transition-colors duration-500";
+const CARD_BODY = "relative rounded-[5px] px-1.5 py-0.5 text-ink shadow-md shadow-black/40 transition-colors duration-500";
 
 const alertKinds = (o: LiveOrder) => Object.keys(o.alerts ?? {});
 
@@ -59,7 +59,7 @@ function createCard(id: number, onPick: (id: number) => void): Card {
   });
   const body = document.createElement("div");
   const label = document.createElement("div");
-  label.className = "text-[11px] font-bold leading-4 tabular-nums";
+  label.className = "mono text-[11px] font-semibold leading-4";
   label.textContent = `#${id}`;
   const name = document.createElement("div");
   name.className = "max-w-28 truncate text-[10px] font-medium leading-3";
@@ -170,15 +170,15 @@ function selectionFeatures(selection: Selection, snapshot: Snapshot, withLine: b
   return features;
 }
 
-function Counter({ label, value, testId, dot }: { label: string; value: number | null; testId: string; dot?: string }) {
+function Stat({ label, value, testId, dot }: { label: string; value: number | null; testId: string; dot?: string }) {
   return (
-    <div className="rounded-lg border border-white/10 px-3 py-2">
-      <p className="flex items-center gap-1.5 text-[11px] text-zinc-400">
-        {dot && <span className="size-2 rounded-full" style={{ background: dot }} />}
-        {label}
-      </p>
-      <p data-testid={testId} className="mt-0.5 text-xl font-semibold tabular-nums text-zinc-100">
+    <div className="border-line px-4 py-3 [&+&]:border-l">
+      <p data-testid={testId} className="num text-[22px] font-medium leading-7 text-strong">
         {value === null ? "—" : formatInt(value)}
+      </p>
+      <p className="mt-0.5 flex items-center gap-1.5 text-xs text-muted">
+        {dot && <span className="size-1.5 rounded-full" style={{ background: dot }} />}
+        {label}
       </p>
     </div>
   );
@@ -376,199 +376,191 @@ export default function Central() {
   const online = stats ? (stats.couriers.livre ?? 0) + (stats.couriers.ocupado ?? 0) : null;
 
   return (
-    <div className="absolute inset-0">
-      <MapSurface container={container} ready={ready} />
-      <aside className="absolute left-4 top-4 flex max-h-[55%] w-[min(22rem,calc(100%-2rem))] flex-col overflow-y-auto rounded-xl border border-white/10 bg-panel/95 shadow-2xl backdrop-blur md:max-h-[calc(100%-2rem)] md:overflow-hidden">
-        <header className="px-4 pt-4">
-          <div className="flex items-center justify-between gap-3">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">GDrive · central</p>
-            <p className="flex items-center gap-1.5 text-[11px] text-zinc-400" aria-live="polite">
-              <span className={`size-2 rounded-full ${connected ? "bg-origin" : "bg-route animate-pulse"}`} />
+    <div className="absolute inset-0 flex flex-col md:flex-row">
+      <section className="relative h-[42dvh] shrink-0 md:order-2 md:h-auto md:min-w-0 md:flex-1" aria-label="Mapa ao vivo">
+        <MapSurface container={container} ready={ready} />
+        <FloatingCredit />
+      </section>
+      <div className="min-h-0 flex-1 overflow-y-auto md:contents">
+        {selectedId !== null && (
+          <OrderAnalysis
+            key={selectedId}
+            orderId={selectedId}
+            order={selectedOrder}
+            courierAt={selectedOrderCourier ? [selectedOrderCourier[1], selectedOrderCourier[2]] : undefined}
+            map={map}
+            ready={ready}
+            onClose={() => setSelection(null)}
+          />
+        )}
+        <aside className="dock flex flex-col border-t md:order-1 md:w-[21rem] md:shrink-0 md:overflow-y-auto md:border-r md:border-t-0">
+          <header className="flex items-baseline justify-between gap-3 px-4 pb-3 pt-4">
+            <h1 className="text-[15px] font-semibold tracking-tight">Central</h1>
+            <p className={`text-xs ${connected ? "text-muted" : "text-route"}`} aria-live="polite">
               {connected ? "ao vivo" : "reconectando…"}
             </p>
-          </div>
-          <h1 className="mt-1 text-base font-semibold text-zinc-100">Operação ao vivo em Salvador</h1>
-          {error ? (
-            <p className="mt-1 text-sm text-target">{error}</p>
-          ) : !ready ? (
-            <p className="mt-1 text-xs text-zinc-400">Carregando a cidade…</p>
-          ) : null}
-        </header>
+          </header>
+          {(error || !ready) && <p className={`px-4 pb-3 text-xs ${error ? "text-target" : "text-muted"}`}>{error ?? "Carregando a cidade…"}</p>}
 
-        <section className="px-4 pt-4">
-          <h2 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500">Entregadores</h2>
-          <div className="mt-2 grid grid-cols-3 gap-2">
-            <Counter label="No mapa" value={summary?.total ?? null} testId="entregadores-no-mapa" />
-            <Counter label="Livres" value={summary?.free ?? null} testId="entregadores-livres" dot={COLORS.free} />
-            <Counter label="Ocupados" value={summary?.busy ?? null} testId="entregadores-ocupados" dot={COLORS.busy} />
-          </div>
-          {stats && (
-            <p className="mt-2 text-[11px] text-zinc-500" data-testid="cadastro">
-              Cadastro: {formatInt(online ?? 0)} online · {formatInt(stats.couriers.offline ?? 0)} offline
-            </p>
-          )}
-        </section>
-
-        <section className="px-4 pt-4">
-          <div className="flex items-baseline justify-between">
-            <h2 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500">Pedidos ativos</h2>
-            <span data-testid="pedidos-ativos" className="text-sm font-semibold tabular-nums text-zinc-100">
-              {summary ? formatInt(summary.orders.length) : "—"}
-            </span>
-          </div>
-          <dl className="mt-2 grid grid-cols-[1fr_auto] gap-x-3 gap-y-1 text-xs">
-            {ACTIVE_STATUSES.map((status) => {
-              const n = summary?.byStatus[status] ?? 0;
-              return (
-                <div key={status} className="contents" data-testid={`status-${status}`}>
-                  <dt className={`flex items-center gap-2 ${n > 0 ? statusTone(status) : "text-zinc-500"}`}>
-                    <span className={`h-2.5 w-3.5 shrink-0 rounded-sm ${statusFill(status)}`} />
-                    {statusLabel(status)}
-                  </dt>
-                  <dd className={`tabular-nums ${n > 0 ? "text-zinc-100" : "text-zinc-600"}`}>{formatInt(n)}</dd>
-                </div>
-              );
-            })}
-          </dl>
-          {stats && (
-            <p className="mt-2 text-[11px] text-zinc-500">
-              {formatInt(stats.delivered)} entregues
-              {stats.avg_delivery_seconds !== null &&
-                ` · tempo médio de entrega ${formatDuration(stats.avg_delivery_seconds)}`}
-            </p>
-          )}
-        </section>
-
-        <section className="px-4 pt-4" data-testid="alertas">
-          <div className="flex items-baseline justify-between">
-            <h2 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500">Alertas</h2>
-            <span
-              data-testid="alertas-abertos"
-              className={`text-sm font-semibold tabular-nums ${summary?.alerted.length ? "text-target" : "text-zinc-100"}`}
-            >
-              {summary ? formatInt(summary.alerted.length) : "—"}
-            </span>
-          </div>
-          {summary && summary.alerted.length > 0 ? (
-            <ul className="mt-1.5 max-h-32 space-y-0.5 overflow-y-auto text-xs" data-testid="lista-alertas">
-              {summary.alerted.map(({ order, since }) => (
-                <li key={order.id}>
-                  <button
-                    type="button"
-                    onClick={() => setSelection({ kind: "order", id: order.id })}
-                    onMouseEnter={() => setHovered(order.id)}
-                    onMouseLeave={() => setHovered(null)}
-                    className="flex w-full items-baseline justify-between gap-2 rounded px-1 py-0.5 text-left hover:bg-white/5"
-                  >
-                    <span className="min-w-0 truncate">
-                      <span className="tabular-nums text-zinc-500">#{order.id}</span>{" "}
-                      <span className="text-target">{alertKinds(order).map(alertLabel).join(" · ")}</span>
-                    </span>
-                    <span className="shrink-0 tabular-nums text-zinc-500">{ageOf(since, Date.now())}</span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="mt-1 text-[11px] text-zinc-500">{summary ? "Nenhum alerta aberto." : ""}</p>
-          )}
-        </section>
-
-        <SimControls liveRain={snapshot?.rain} />
-
-        {selectedCourier && (
-          <section className="mx-4 mt-4 rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-xs" data-testid="selecao">
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <p className="text-sm text-zinc-100">Entregador #{selectedCourier[0]}</p>
-                <p className="text-zinc-400">{selectedCourier[3] === 1 ? "Ocupado" : "Livre"}</p>
-                {courierOrder && (
-                  <button
-                    type="button"
-                    onClick={() => setSelection({ kind: "order", id: courierOrder.id })}
-                    className="mt-1 text-route hover:underline"
-                  >
-                    Analisar o pedido #{courierOrder.id} →
-                  </button>
-                )}
-                <div className="mt-2">
-                  <CourierFaults courierId={selectedCourier[0]} />
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setSelection(null)}
-                className="text-zinc-500 hover:text-zinc-200"
-                aria-label="Limpar seleção"
-              >
-                ×
-              </button>
-            </div>
+          <section className="grid grid-cols-3 border-y border-line" aria-label="Entregadores">
+            <Stat label="no mapa" value={summary?.total ?? null} testId="entregadores-no-mapa" />
+            <Stat label="livres" value={summary?.free ?? null} testId="entregadores-livres" dot={COLORS.free} />
+            <Stat label="ocupados" value={summary?.busy ?? null} testId="entregadores-ocupados" dot={COLORS.busy} />
           </section>
-        )}
-
-        <section className="mt-4 flex min-h-40 flex-1 flex-col border-t border-white/10 md:min-h-0">
-          {summary && summary.orders.length > 0 ? (
-            <ul className="min-h-0 flex-1 overflow-y-auto py-1" data-testid="lista-pedidos">
-              {summary.orders.map((o) => (
-                <li key={o.id}>
-                  <Link
-                    to={`/pedido/${o.id}`}
-                    onMouseEnter={() => setHovered(o.id)}
-                    onMouseLeave={() => setHovered(null)}
-                    className={`flex items-baseline justify-between gap-3 px-4 py-1.5 text-xs hover:bg-white/5 ${
-                      selection?.kind === "order" && selection.id === o.id ? "bg-white/5" : ""
-                    }`}
-                  >
-                    <span className="min-w-0 truncate text-zinc-200">
-                      <span className="tabular-nums text-zinc-500">#{o.id}</span> {o.store_name ?? "Loja"}
-                    </span>
-                    <span className={`shrink-0 ${statusTone(o.status)}`}>{statusLabel(o.status)}</span>
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="px-4 py-3 text-xs text-zinc-500">
-              {summary ? "Nenhum pedido ativo agora." : "Aguardando dados ao vivo…"}
+          {stats && (
+            <p className="px-4 pt-2 text-xs text-faint" data-testid="cadastro">
+              {formatInt(online ?? 0)} online e {formatInt(stats.couriers.offline ?? 0)} offline no cadastro
             </p>
           )}
-        </section>
 
-        <footer className="flex flex-wrap gap-x-3 gap-y-1 border-t border-white/10 px-4 py-2.5 text-[11px] text-zinc-400">
-          {[
-            ["Entregador livre", COLORS.free],
-            ["Entregador ocupado", COLORS.busy],
-            ["Com alerta", COLORS.target],
-            ["Loja", COLORS.storeDot],
-          ].map(([label, color]) => (
-            <span key={label} className="flex items-center gap-1.5">
-              <span className="size-2 rounded-full" style={{ background: color }} />
-              {label}
+          <section className="px-4 pt-5">
+            <div className="flex items-baseline justify-between">
+              <h2 className="section-title">Pedidos ativos</h2>
+              <span data-testid="pedidos-ativos" className="num text-sm text-strong">
+                {summary ? formatInt(summary.orders.length) : "—"}
+              </span>
+            </div>
+            <dl className="mt-2 grid grid-cols-[1fr_auto] gap-x-3 gap-y-1.5 text-[13px]">
+              {ACTIVE_STATUSES.map((status) => {
+                const n = summary?.byStatus[status] ?? 0;
+                return (
+                  <div key={status} className="contents" data-testid={`status-${status}`}>
+                    <dt className={`flex items-center gap-2 ${n > 0 ? "text-strong" : "text-faint"}`}>
+                      <span className={`size-2 shrink-0 rounded-[2px] ${statusFill(status)} ${n > 0 ? "" : "opacity-40"}`} />
+                      {statusLabel(status)}
+                    </dt>
+                    <dd className={`num ${n > 0 ? "text-strong" : "text-faint"}`}>{formatInt(n)}</dd>
+                  </div>
+                );
+              })}
+            </dl>
+            {stats && (
+              <p className="mt-2.5 text-xs text-faint">
+                <span className="num">{formatInt(stats.delivered)}</span> entregues
+                {stats.avg_delivery_seconds !== null && (
+                  <>
+                    , em média <span className="num">{formatDuration(stats.avg_delivery_seconds)}</span> cada
+                  </>
+                )}
+              </p>
+            )}
+          </section>
+
+          <section className="px-4 pt-5" data-testid="alertas">
+            <div className="flex items-baseline justify-between">
+              <h2 className="section-title">Alertas</h2>
+              <span
+                data-testid="alertas-abertos"
+                className={`num text-sm ${summary?.alerted.length ? "text-target" : "text-strong"}`}
+              >
+                {summary ? formatInt(summary.alerted.length) : "—"}
+              </span>
+            </div>
+            {summary && summary.alerted.length > 0 ? (
+              <ul className="-mx-2 mt-1.5 max-h-36 overflow-y-auto text-[13px]" data-testid="lista-alertas">
+                {summary.alerted.map(({ order, since }) => (
+                  <li key={order.id}>
+                    <button
+                      type="button"
+                      onClick={() => setSelection({ kind: "order", id: order.id })}
+                      onMouseEnter={() => setHovered(order.id)}
+                      onMouseLeave={() => setHovered(null)}
+                      className="flex w-full items-baseline gap-2 rounded px-2 py-1 text-left transition-colors hover:bg-raised"
+                    >
+                      <span className="mono w-12 shrink-0 text-xs text-faint">#{order.id}</span>
+                      <span className="min-w-0 flex-1 truncate text-target">{alertKinds(order).map(alertLabel).join(", ")}</span>
+                      <span className="num shrink-0 text-xs text-faint">{ageOf(since, Date.now())}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="mt-1 text-xs text-faint">{summary ? "Nenhum alerta aberto." : ""}</p>
+            )}
+          </section>
+
+          <SimControls liveRain={snapshot?.rain} />
+
+          {selectedCourier && (
+            <section className="mx-4 mt-5 rounded-md bg-raised px-3 py-2.5" data-testid="selecao">
+              <div className="flex items-baseline justify-between gap-3">
+                <p className="text-[13px] font-medium">
+                  Entregador <span className="mono">#{selectedCourier[0]}</span>
+                  <span className="ml-2 font-normal text-muted">{selectedCourier[3] === 1 ? "ocupado" : "livre"}</span>
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setSelection(null)}
+                  className="rounded px-1 text-lg leading-none text-faint transition-colors hover:text-strong"
+                  aria-label="Limpar seleção"
+                >
+                  ×
+                </button>
+              </div>
+              {courierOrder && (
+                <button
+                  type="button"
+                  onClick={() => setSelection({ kind: "order", id: courierOrder.id })}
+                  className="link mt-1 text-xs"
+                >
+                  Ver o pedido {courierOrder.id}
+                </button>
+              )}
+              <div className="mt-2.5">
+                <CourierFaults courierId={selectedCourier[0]} />
+              </div>
+            </section>
+          )}
+
+          <section className="mt-5 flex min-h-48 flex-1 flex-col border-t border-line md:min-h-40">
+            <h2 className="section-title px-4 pb-1 pt-3">Últimos pedidos</h2>
+            {summary && summary.orders.length > 0 ? (
+              <ul className="min-h-0 flex-1 overflow-y-auto pb-2" data-testid="lista-pedidos">
+                {summary.orders.map((o) => (
+                  <li key={o.id}>
+                    <Link
+                      to={`/pedido/${o.id}`}
+                      onMouseEnter={() => setHovered(o.id)}
+                      onMouseLeave={() => setHovered(null)}
+                      className={`flex items-baseline gap-2 px-4 py-1.5 text-[13px] transition-colors hover:bg-raised ${
+                        selection?.kind === "order" && selection.id === o.id ? "bg-raised" : ""
+                      }`}
+                    >
+                      <span className="mono w-12 shrink-0 text-xs text-faint">#{o.id}</span>
+                      <span className="min-w-0 flex-1 truncate">{o.store_name ?? "Loja"}</span>
+                      <span className={`shrink-0 text-xs ${statusTone(o.status)}`}>{statusLabel(o.status)}</span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="px-4 py-2 text-xs text-faint">{summary ? "Nenhum pedido ativo agora." : "Aguardando dados ao vivo…"}</p>
+            )}
+          </section>
+
+          <footer className="flex flex-wrap gap-x-3 gap-y-1 border-t border-line px-4 py-2.5 text-[11px] text-faint">
+            {[
+              ["livre", COLORS.free],
+              ["ocupado", COLORS.busy],
+              ["com alerta", COLORS.target],
+              ["loja", COLORS.storeDot],
+            ].map(([label, color]) => (
+              <span key={label} className="flex items-center gap-1.5">
+                <span className="size-2 rounded-full" style={{ background: color }} />
+                {label}
+              </span>
+            ))}
+            <span className="flex items-center gap-1.5">
+              <span className="size-2 rounded-full border-[1.5px]" style={{ borderColor: COLORS.customerDot }} />
+              cliente
             </span>
-          ))}
-          <span className="flex items-center gap-1.5">
-            <span className="size-2 rounded-full border-[1.5px]" style={{ borderColor: COLORS.customerDot }} />
-            Cliente
-          </span>
-          <span className="flex items-center gap-1.5">
-            <span className="rounded-sm bg-zinc-300 px-1 text-[9px] font-bold leading-3 text-ink">#ID</span>
-            Pedido, na cor do status
-          </span>
-        </footer>
-      </aside>
-      {selectedId !== null && (
-        <OrderAnalysis
-          key={selectedId}
-          orderId={selectedId}
-          order={selectedOrder}
-          courierAt={selectedOrderCourier ? [selectedOrderCourier[1], selectedOrderCourier[2]] : undefined}
-          map={map}
-          ready={ready}
-          onClose={() => setSelection(null)}
-        />
-      )}
-      <FloatingCredit />
+            <span className="flex items-center gap-1.5">
+              <span className="mono rounded-[3px] bg-muted px-1 text-[9px] font-semibold leading-3 text-ink">#2601</span>
+              pedido, na cor da etapa
+            </span>
+          </footer>
+        </aside>
+      </div>
     </div>
   );
 }

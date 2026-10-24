@@ -25,14 +25,14 @@ export function CourierFaults({ courierId }: { courierId: number }) {
             type="button"
             onClick={() => run(fault)}
             data-testid={`falha-${fault.action}`}
-            className="rounded-md border border-white/10 px-2 py-1 text-[11px] text-zinc-300 hover:bg-white/5"
+            className="btn h-7 px-2.5 text-xs"
           >
             {fault.label}
           </button>
         ))}
       </div>
       {message && (
-        <p className={`mt-1 text-[11px] ${message.error ? "text-target" : "text-zinc-400"}`}>{message.text}</p>
+        <p className={`mt-1.5 text-xs ${message.error ? "text-target" : "text-muted"}`}>{message.text}</p>
       )}
     </div>
   );
@@ -71,23 +71,27 @@ export default function SimControls({ liveRain }: { liveRain: boolean | undefine
 
   const rain = state?.rain ?? false;
   return (
-    <section className="px-4 pt-4" data-testid="simulacao">
-      <h2 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500">Simulação</h2>
-      <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+    <section className="px-4 pt-5" data-testid="simulacao">
+      <h2 className="section-title">Simulação</h2>
+      <div className="mt-2 flex flex-wrap items-center gap-2">
         <button
           type="button"
           disabled={!state || saving}
           onClick={() => change({ rain: !rain })}
           aria-pressed={rain}
           data-testid="chuva"
-          className={`rounded-md border px-2.5 py-1 transition-colors disabled:opacity-50 ${
-            rain ? "border-sky-400/60 bg-sky-400/15 text-sky-200" : "border-white/10 text-zinc-300 hover:bg-white/5"
-          }`}
+          title="Chuva deixa todo trajeto 40% mais lento"
+          className={`btn ${rain ? "border-sky-400/50 bg-sky-400/10 text-sky-200 hover:bg-sky-400/15" : ""}`}
         >
           {rain ? "Chovendo" : "Sem chuva"}
         </button>
-        <div className="flex items-center rounded-md border border-white/10" role="group" aria-label="Pico de pedidos">
-          <span className="px-2 text-zinc-500">Pico</span>
+        <div
+          className="flex h-8 items-stretch overflow-hidden rounded-md border border-line text-[13px]"
+          role="group"
+          aria-label="Pico de pedidos"
+          title="Multiplica a chegada de pedidos"
+        >
+          <span className="flex items-center bg-raised px-2.5 text-muted">Pico</span>
           {RUSH_LEVELS.map((level) => {
             const active = (state?.rush ?? 1) === level;
             return (
@@ -98,8 +102,8 @@ export default function SimControls({ liveRain }: { liveRain: boolean | undefine
                 onClick={() => change({ rush: level })}
                 aria-pressed={active}
                 data-testid={`pico-${level}`}
-                className={`border-l border-white/10 px-2 py-1 tabular-nums transition-colors disabled:opacity-50 ${
-                  active ? "bg-route/20 text-route" : "text-zinc-300 hover:bg-white/5"
+                className={`num border-l border-line px-2.5 transition-colors disabled:opacity-45 ${
+                  active ? "bg-route text-ink" : "text-muted hover:bg-raised hover:text-strong"
                 }`}
               >
                 {level}×
@@ -108,10 +112,7 @@ export default function SimControls({ liveRain }: { liveRain: boolean | undefine
           })}
         </div>
       </div>
-      <p className="mt-1.5 text-[11px] leading-snug text-zinc-500">
-        Chuva deixa todo trajeto 40% mais lento; pico multiplica a chegada de pedidos.
-      </p>
-      {error && <p className="mt-1 text-[11px] text-target">{error}</p>}
+      {error && <p className="mt-1.5 text-xs text-target">{error}</p>}
     </section>
   );
 }

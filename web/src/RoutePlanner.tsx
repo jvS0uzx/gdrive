@@ -157,60 +157,60 @@ export default function RoutePlanner() {
   const rainPercent = meta ? Math.round((meta.rain_factor - 1) * 100) : 40;
 
   return (
-    <div className="absolute inset-0">
-      <MapSurface container={container} ready={ready} />
-      <aside className="absolute left-4 top-4 max-h-[calc(100%-2rem)] w-[min(22rem,calc(100%-2rem))] overflow-y-auto rounded-xl border border-white/10 bg-panel/95 p-4 shadow-2xl backdrop-blur">
-        <header>
-          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">GDrive · fase 0</p>
-          <h1 className="mt-1 text-base font-semibold text-zinc-100">
-            Rota mais rápida em {meta?.name ?? "…"}
-          </h1>
+    <div className="absolute inset-0 flex flex-col md:flex-row">
+      <section className="relative h-[50dvh] shrink-0 md:order-2 md:h-auto md:min-w-0 md:flex-1" aria-label="Mapa">
+        <MapSurface container={container} ready={ready} />
+      </section>
+      <aside className="dock min-h-0 flex-1 overflow-y-auto border-t md:order-1 md:w-[22rem] md:flex-none md:border-r md:border-t-0">
+        <header className="px-5 pt-5">
+          <h1 className="text-[17px] font-semibold tracking-tight">Rota mais rápida</h1>
           {meta && (
-            <p className="mt-1 text-xs text-zinc-400">
-              {formatInt(meta.junctions)} cruzamentos · {formatInt(meta.km)} km de vias · mapa real
+            <p className="meta mt-1">
+              {meta.name}: <span className="num">{formatInt(meta.junctions)}</span> cruzamentos e{" "}
+              <span className="num">{formatInt(meta.km)}</span> km de vias do mapa real
             </p>
           )}
         </header>
 
-        <section aria-live="polite" className="mt-4 min-h-16">
+        <section aria-live="polite" className="min-h-28 px-5 pb-5 pt-5">
           {error ? (
             <p className="text-sm text-target">{error}</p>
           ) : !ready ? (
-            <p className="text-sm text-zinc-400">Carregando a cidade…</p>
+            <p className="text-sm text-muted">Carregando a cidade…</p>
           ) : !points.origin ? (
             <p className="text-sm">Clique no mapa para marcar a origem.</p>
           ) : !points.target ? (
             <p className="text-sm">Agora clique no destino.</p>
           ) : loading && !route ? (
-            <p className="text-sm text-zinc-400">Calculando a rota…</p>
+            <p className="text-sm text-muted">Calculando a rota…</p>
           ) : route ? (
             <div>
               <div className="flex items-baseline gap-3">
-                <span data-testid="tempo" className="text-3xl font-semibold tabular-nums text-route">
+                <span data-testid="tempo" className="num text-[32px] font-semibold leading-none tracking-tight text-route">
                   {formatDuration(route.seconds)}
                 </span>
-                <span data-testid="distancia" className="text-sm tabular-nums text-zinc-300">
+                <span data-testid="distancia" className="num text-sm text-muted">
                   {formatDistance(route.meters)}
                 </span>
               </div>
-              <p className="mt-1 text-xs text-zinc-400">
-                média {formatSpeed(route.meters, route.seconds)}
-                {route.rain ? " · com chuva" : ""}
+              <p className="meta mt-2">
+                média de <span className="num">{formatSpeed(route.meters, route.seconds)}</span>
+                {route.rain ? ", com chuva" : ""}
               </p>
               {route.roads.length > 0 && (
-                <p data-testid="vias" className="mt-2 text-xs leading-relaxed text-zinc-300">
+                <p data-testid="vias" className="mt-3 text-[13px] leading-relaxed text-strong">
                   Por {listRoads(route.roads.map((r) => r.name))}
                 </p>
               )}
-              <p className="mt-2 text-xs text-zinc-500">Clique de novo no mapa para começar outra rota.</p>
+              <p className="mt-3 text-xs text-faint">Outro clique no mapa começa uma rota nova.</p>
             </div>
           ) : null}
         </section>
 
-        <label className="mt-4 flex cursor-pointer items-center justify-between gap-3 rounded-lg border border-white/10 px-3 py-2">
+        <label className="flex cursor-pointer items-center justify-between gap-3 border-y border-line px-5 py-3 transition-colors hover:bg-raised">
           <span>
-            <span className="block text-sm">Chuva</span>
-            <span className="block text-xs text-zinc-400">vias {rainPercent}% mais lentas, mesma rota</span>
+            <span className="block text-sm font-medium">Chuva</span>
+            <span className="meta block">todo trecho fica {rainPercent}% mais lento</span>
           </span>
           <input
             type="checkbox"
@@ -221,22 +221,25 @@ export default function RoutePlanner() {
           />
         </label>
 
-        <p className="mt-4 text-[11px] text-zinc-500">Velocidade usada quando o mapa não informa a da via</p>
-        <dl className="mt-2 grid grid-cols-[auto_1fr_auto] items-center gap-x-3 gap-y-1.5 text-xs text-zinc-400">
-          {[...ROADS].reverse().map((road) => (
-            <div key={road.id} className="contents">
-              <span className="w-6 rounded-full" style={{ background: road.color, height: Math.max(1, road.width[1]) }} />
-              <dt>{road.label}</dt>
-              <dd className="tabular-nums">{meta?.speeds_kmh[road.id] ?? "—"} km/h</dd>
-            </div>
-          ))}
-          <span className="w-6 text-center font-bold leading-none" style={{ color: COLORS.arrow }}>
-            ›
-          </span>
-          <dt className="col-span-2">Mão única, aparece ao aproximar</dt>
-        </dl>
+        <section className="px-5 py-5">
+          <h2 className="section-title">Velocidade por tipo de via</h2>
+          <p className="mt-0.5 text-xs text-faint">quando o mapa não informa a da própria via</p>
+          <dl className="mt-3 grid grid-cols-[auto_1fr_auto] items-center gap-x-3 gap-y-2 text-[13px]">
+            {[...ROADS].reverse().map((road) => (
+              <div key={road.id} className="contents">
+                <span className="w-6 rounded-full" style={{ background: road.color, height: Math.max(1.5, road.width[1]) }} />
+                <dt className="text-muted">{road.label}</dt>
+                <dd className="num">{meta?.speeds_kmh[road.id] ?? "—"} km/h</dd>
+              </div>
+            ))}
+            <span className="w-6 text-center font-bold leading-none" style={{ color: COLORS.arrow }}>
+              ›
+            </span>
+            <dt className="col-span-2 text-muted">Mão única, aparece de perto</dt>
+          </dl>
+        </section>
 
-        <p className="mt-4 border-t border-white/10 pt-3 text-[11px] leading-snug text-zinc-500">
+        <p className="border-t border-line px-5 py-3 text-[11px] leading-snug text-faint">
           <OsmCredit />
         </p>
       </aside>

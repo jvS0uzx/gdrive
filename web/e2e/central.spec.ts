@@ -53,7 +53,7 @@ test("o menu leva da central para a rota e volta", async ({ page }) => {
   await expect(page).toHaveURL(/\/rota$/);
   await expect(page.getByText("Clique no mapa para marcar a origem.")).toBeVisible({ timeout: 20_000 });
   await page.getByRole("navigation").getByRole("link", { name: "Central" }).click();
-  await expect(page.getByText("Operação ao vivo em Salvador")).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "Central" })).toBeVisible();
 });
 
 test("um entregador que fica online e manda posição aparece na central", async ({ page, request }) => {
@@ -128,7 +128,7 @@ test("a análise de um pedido em andamento compara rotas, explica o despacho e m
   await expect(dispatch.getByTestId("oferta").first()).toContainText(/raio .* km/);
   await expect(dispatch.getByTestId("candidatos").or(dispatch.getByTestId("sem-candidatos")).first()).toBeVisible();
 
-  await expect(analysis.getByTestId("trecho-loja")).toContainText(/prevista .* desvio máximo \d+ m/);
+  await expect(analysis.getByTestId("trecho-loja")).toContainText(/prevista\s*[\d,.]+ k?m\s*desvio máximo\s*\d+ m/);
 
   await analysis.getByRole("link", { name: "Abrir acompanhamento" }).click();
   await expect(page).toHaveURL(new RegExp(`/pedido/${id}$`));
