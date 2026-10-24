@@ -10,7 +10,7 @@ export default function StorePicker() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    document.title = "Loja · GDrive";
+    document.title = "Loja · Gdrive";
   }, []);
 
   useEffect(() => {

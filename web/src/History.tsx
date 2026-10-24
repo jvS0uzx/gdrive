@@ -26,7 +26,7 @@ export default function History() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    document.title = "Histórico · GDrive";
+    document.title = "Histórico · Gdrive";
   }, []);
 
   useEffect(() => {

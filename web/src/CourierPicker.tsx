@@ -54,7 +54,7 @@ export default function CourierPicker() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    document.title = "Entregador · GDrive";
+    document.title = "Entregador · Gdrive";
     let alive = true;
     Promise.all([fetchCouriers({ human: true }), fetchCouriers({ status: "offline", limit: 12 })])
       .then(([humans, idle]) => {

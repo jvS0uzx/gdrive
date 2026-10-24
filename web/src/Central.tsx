@@ -211,7 +211,7 @@ export default function Central() {
   }, []);
 
   useEffect(() => {
-    document.title = "Central · GDrive";
+    document.title = "Central · Gdrive";
   }, []);
 
   useEffect(() => {

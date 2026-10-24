@@ -137,7 +137,7 @@ export default function OrderTracking({ id }: { id: number }) {
   });
 
   useEffect(() => {
-    document.title = `Pedido #${id} · GDrive`;
+    document.title = `Pedido #${id} · Gdrive`;
     refresh();
   }, [id, refresh]);
 

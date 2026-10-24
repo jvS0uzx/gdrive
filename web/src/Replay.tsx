@@ -127,7 +127,7 @@ export default function Replay({ id }: { id: number }) {
   const fitted = useRef(false);
 
   useEffect(() => {
-    document.title = `Replay #${id} · GDrive`;
+    document.title = `Replay #${id} · Gdrive`;
     let alive = true;
     fetchTrack(id)
       .then((t) => {

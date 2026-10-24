@@ -69,7 +69,7 @@ export default function RoutePlanner() {
   const error = cityError ?? routeError;
 
   useEffect(() => {
-    document.title = "Rota · GDrive";
+    document.title = "Rota · Gdrive";
   }, []);
 
   useEffect(() => {

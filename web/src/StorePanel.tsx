@@ -242,7 +242,7 @@ export default function StorePanel({ id }: { id: number }) {
   }, [id]);
 
   useEffect(() => {
-    document.title = store ? `${store.name} · Loja · GDrive` : "Loja · GDrive";
+    document.title = store ? `${store.name} · Loja · Gdrive` : "Loja · Gdrive";
   }, [store]);
 
   const refresh = useCallback(() => {

@@ -1,4 +1,9 @@
-# GDrive
+<h1>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/logo-dark.svg" />
+    <img src="docs/assets/logo-light.svg" alt="Gdrive" width="240" />
+  </picture>
+</h1>
 
 ![Fase 2: o painel da loja, o entregador pelo celular com piloto automático, os alertas na central com a desatribuição e o replay de uma entrega](docs/assets/fase-2.gif)
 

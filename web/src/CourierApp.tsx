@@ -256,7 +256,7 @@ export default function CourierApp({ id }: { id: number }) {
   }, [missing, refresh]);
 
   useEffect(() => {
-    document.title = courier ? `${courier.name} · GDrive` : "Entregador · GDrive";
+    document.title = courier ? `${courier.name} · Gdrive` : "Entregador · Gdrive";
   }, [courier?.name]);
 
   useEffect(() => {

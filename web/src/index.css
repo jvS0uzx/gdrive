@@ -3,11 +3,13 @@
 @import "@fontsource/ibm-plex-mono/400.css";
 @import "@fontsource/ibm-plex-mono/500.css";
 @import "@fontsource/ibm-plex-mono/600.css";
+@import "@fontsource/manrope/800.css";
 @import "maplibre-gl/dist/maplibre-gl.css";
 
 @theme {
   --font-sans: "IBM Plex Sans Variable", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+  --font-brand: "Manrope", ui-sans-serif, system-ui, sans-serif;
   --color-ink: #0e1115;
   --color-panel: #14181d;
   --color-raised: #1b2027;

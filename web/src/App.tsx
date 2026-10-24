@@ -6,6 +6,7 @@ import History from "./History";
 import OrderTracking from "./OrderTracking";
 import Replay from "./Replay";
 import RoutePlanner from "./RoutePlanner";
+import { BrandSymbol } from "./Brand";
 import { Link, usePath } from "./router";
 import StorePanel from "./StorePanel";
 import StorePicker from "./StorePicker";
@@ -21,17 +22,6 @@ function NavLink({ to, active, children }: { to: string; active: boolean; childr
     >
       {children}
     </Link>
-  );
-}
-
-function Mark() {
-  return (
-    <svg viewBox="0 0 32 32" className="size-6 shrink-0" aria-hidden="true">
-      <rect width="32" height="32" rx="7" className="fill-raised" />
-      <path d="M8 23c5 0 5-12 10-12s4 5 7-2" fill="none" className="stroke-route" strokeWidth="2.6" strokeLinecap="round" />
-      <circle cx="8" cy="23" r="2.6" className="fill-strong" />
-      <circle cx="25" cy="9" r="2.6" className="fill-route" />
-    </svg>
   );
 }
 
@@ -80,9 +70,11 @@ export default function App() {
   return (
     <div className="flex h-full flex-col font-sans text-strong">
       <header className="flex h-12 shrink-0 items-stretch gap-2 border-b border-line bg-panel pl-3 pr-2 sm:gap-6 sm:px-4">
-        <Link to="/" className="flex shrink-0 items-center gap-2" aria-label="GDrive, ir para a central">
-          <Mark />
-          <span className="hidden text-[15px] font-semibold tracking-tight sm:inline">GDrive</span>
+        <Link to="/" className="flex shrink-0 items-center gap-1.5" aria-label="Gdrive, ir para a central">
+          <BrandSymbol className="size-8 shrink-0" />
+          <span className="hidden font-brand text-[19px] font-extrabold leading-none tracking-[-0.02em] text-white sm:inline">
+            Gdrive
+          </span>
         </Link>
         <nav aria-label="Telas" className="flex min-w-0 items-stretch overflow-x-auto">
           {SECTIONS.map((section) => (
