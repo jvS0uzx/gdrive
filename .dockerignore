@@ -6,3 +6,5 @@ web/playwright-report
 videos
 docs
 cities/*/osm-*.json
+api/.venv
+**/__pycache__

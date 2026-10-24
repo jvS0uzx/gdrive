@@ -1,10 +1,82 @@
 name: gdrive
 
+x-api-env: &api-env
+  DATABASE_URL: postgresql+asyncpg://postgres:gdrive@db:5432/gdrive
+  REDIS_URL: redis://redis:6379/0
+  ENGINE_URL: http://engine:8080
+
 services:
+  db:
+    image: postgis/postgis:18-3.6-alpine
+    environment:
+      POSTGRES_PASSWORD: gdrive
+      POSTGRES_DB: gdrive
+    volumes:
+      - db:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d gdrive"]
+      interval: 2s
+      retries: 30
+    restart: unless-stopped
+
+  redis:
+    image: redis:7.4-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      retries: 30
+    restart: unless-stopped
+
   engine:
     build:
       context: .
       dockerfile: engine/Dockerfile
+    environment:
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  migrate:
+    build:
+      context: .
+      dockerfile: api/Dockerfile
+    command: ["alembic", "upgrade", "head"]
+    environment: *api-env
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    build:
+      context: .
+      dockerfile: api/Dockerfile
+    environment: *api-env
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      engine:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: .
+      dockerfile: api/Dockerfile
+    command: ["python", "-m", "app.worker"]
+    environment:
+      <<: *api-env
+      DISPATCH_RETRY_SECONDS: "10"
+      UNASSIGNED_ALERT_SECONDS: "120"
+    healthcheck:
+      disable: true
+    depends_on:
+      api:
+        condition: service_healthy
     restart: unless-stopped
 
   web:
@@ -16,4 +88,9 @@ services:
     depends_on:
       engine:
         condition: service_healthy
+      api:
+        condition: service_healthy
     restart: unless-stopped
+
+volumes:
+  db:
