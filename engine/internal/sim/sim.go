@@ -31,6 +31,8 @@ type Config struct {
 	DeclineRate float64
 	StoreRadius float64
 	Seed        uint64
+	Attempts    int
+	RetryDelay  time.Duration
 }
 
 type Store struct {
@@ -191,12 +193,21 @@ func (s *Sim) call(ctx context.Context, method, url string, body, out any) error
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 300 {
-		return fmt.Errorf("%s %s: %d", method, url, resp.StatusCode)
+		return statusError{method: method, url: url, code: resp.StatusCode}
 	}
 	if out != nil {
 		return json.NewDecoder(resp.Body).Decode(out)
 	}
 	return nil
+}
+
+type statusError struct {
+	method, url string
+	code        int
+}
+
+func (e statusError) Error() string {
+	return fmt.Sprintf("%s %s: %d", e.method, e.url, e.code)
 }
 
 func (s *Sim) api(path string) string    { return strings.TrimRight(s.cfg.APIURL, "/") + path }
@@ -242,17 +253,135 @@ func (s *Sim) Run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	last := "0-0"
+	if past, err := s.rdb.XRevRangeN(ctx, live.OrdersStream, "+", "-", 1).Result(); err == nil && len(past) == 1 {
+		last = past[0].ID
+	}
 	for _, info := range infos {
-		c := &courier{id: info.ID, pos: live.Point{Lat: info.Lat, Lon: info.Lon}}
+		c := &courier{id: info.ID, pos: s.lastPosition(ctx, info)}
 		s.couriers[info.ID] = c
-		if err := s.call(ctx, http.MethodPost, s.api(fmt.Sprintf("/api/couriers/%d/online", info.ID)), nil, nil); err != nil {
+		if err := s.call(ctx, http.MethodPost, s.api(fmt.Sprintf("/api/couriers/%d/online", info.ID)), nil, nil); err != nil && !busy(err) {
 			s.log.Warn("entregador não ficou online", "id", info.ID, "err", err)
 		}
 		go s.drive(ctx, c)
 	}
-	s.log.Info("simulação no ar", "entregadores", len(infos), "lojas", len(s.stores))
+	resumed := s.resume(ctx)
+	s.log.Info("simulação no ar", "entregadores", len(infos), "lojas", len(s.stores), "pedidos_retomados", resumed)
 	go s.customers(ctx)
-	return s.follow(ctx)
+	return s.follow(ctx, last)
+}
+
+func busy(err error) bool {
+	var status statusError
+	return errors.As(err, &status) && status.code == http.StatusConflict
+}
+
+func (s *Sim) lastPosition(ctx context.Context, info courierInfo) live.Point {
+	vals, err := s.rdb.HMGet(ctx, live.CourierKey(info.ID), "lat", "lon").Result()
+	if err == nil && len(vals) == 2 {
+		lat, ok1 := vals[0].(string)
+		lon, ok2 := vals[1].(string)
+		var p live.Point
+		if ok1 && ok2 {
+			if _, err := fmt.Sscan(lat, &p.Lat); err == nil {
+				if _, err := fmt.Sscan(lon, &p.Lon); err == nil {
+					return p
+				}
+			}
+		}
+	}
+	return live.Point{Lat: info.Lat, Lon: info.Lon}
+}
+
+type orderDetail struct {
+	ID     int64  `json:"id"`
+	Status string `json:"status"`
+	Store  struct {
+		ID  int64   `json:"id"`
+		Lat float64 `json:"lat"`
+		Lon float64 `json:"lon"`
+	} `json:"store"`
+	Customer live.Point `json:"customer"`
+	Courier  *struct {
+		ID int64 `json:"id"`
+	} `json:"courier"`
+	ReadyAt *string `json:"ready_at"`
+}
+
+func (s *Sim) resume(ctx context.Context) int {
+	resumed := 0
+	for _, status := range []string{"aguardando_loja", "em_preparo", "a_caminho_da_loja", "na_loja", "em_rota", "no_cliente"} {
+		var list []struct {
+			ID int64 `json:"id"`
+		}
+		if err := s.call(ctx, http.MethodGet, s.api("/api/orders?limit=500&status="+status), nil, &list); err != nil {
+			s.log.Warn("pedidos em andamento não lidos", "status", status, "err", err)
+			continue
+		}
+		for _, item := range list {
+			var d orderDetail
+			if err := s.call(ctx, http.MethodGet, s.api(fmt.Sprintf("/api/orders/%d", item.ID)), nil, &d); err != nil {
+				continue
+			}
+			if s.resumeOrder(ctx, d) {
+				resumed++
+			}
+		}
+	}
+	return resumed
+}
+
+func (s *Sim) resumeOrder(ctx context.Context, d orderDetail) bool {
+	o := &order{store: d.Store.ID, ready: d.ReadyAt != nil}
+	var c *courier
+	if d.Courier != nil {
+		o.courier = d.Courier.ID
+		c = s.couriers[d.Courier.ID]
+	}
+	s.mu.Lock()
+	s.orders[d.ID] = o
+	s.mu.Unlock()
+	store := live.Point{Lat: d.Store.Lat, Lon: d.Store.Lon}
+	switch d.Status {
+	case "aguardando_loja":
+		s.storeAccepts(ctx, d.ID, d.Store.ID)
+		return true
+	case "em_preparo", "a_caminho_da_loja", "na_loja":
+		if !o.ready {
+			s.later(ctx, s.between(5*time.Second, 20*time.Second), func() {
+				s.post(ctx, fmt.Sprintf("/api/stores/%d/orders/%d/ready", d.Store.ID, d.ID), nil)
+			})
+		}
+	}
+	if c == nil {
+		return d.Status == "em_preparo"
+	}
+	switch d.Status {
+	case "a_caminho_da_loja":
+		go s.travel(ctx, c, store)
+	case "na_loja":
+		s.mu.Lock()
+		o.atStore = true
+		s.mu.Unlock()
+		s.tryPickup(ctx, d.ID)
+	case "em_rota":
+		go s.travel(ctx, c, d.Customer)
+	case "no_cliente":
+		s.later(ctx, s.between(time.Second, 3*time.Second), func() {
+			s.post(ctx, fmt.Sprintf("/api/orders/%d/deliver", d.ID), map[string]int64{"courier_id": c.id})
+		})
+	}
+	return true
+}
+
+func (s *Sim) storeAccepts(ctx context.Context, orderID, storeID int64) {
+	prep := 8 + s.intn(13)
+	s.later(ctx, s.between(time.Second, 3*time.Second), func() {
+		s.post(ctx, fmt.Sprintf("/api/stores/%d/orders/%d/accept", storeID, orderID), map[string]int{"prep_minutes": prep})
+		s.later(ctx, time.Duration(float64(prep)*60/s.cfg.Speed*float64(time.Second)), func() {
+			s.post(ctx, fmt.Sprintf("/api/stores/%d/orders/%d/ready", storeID, orderID), nil)
+		})
+	})
 }
 
 func (s *Sim) drive(ctx context.Context, c *courier) {
@@ -303,8 +432,7 @@ func (s *Sim) customers(ctx context.Context) {
 	}
 }
 
-func (s *Sim) follow(ctx context.Context) error {
-	last := "$"
+func (s *Sim) follow(ctx context.Context, last string) error {
 	for ctx.Err() == nil {
 		res, err := s.rdb.XRead(ctx, &redis.XReadArgs{Streams: []string{live.OrdersStream, last}, Block: 5 * time.Second, Count: 200}).Result()
 		if err != nil {
@@ -342,8 +470,27 @@ func (s *Sim) later(ctx context.Context, d time.Duration, f func()) {
 }
 
 func (s *Sim) post(ctx context.Context, path string, body any) {
-	if err := s.call(ctx, http.MethodPost, s.api(path), body, nil); err != nil {
-		s.log.Debug("ação recusada", "path", path, "err", err)
+	delay := s.cfg.RetryDelay
+	for attempt := 1; ; attempt++ {
+		err := s.call(ctx, http.MethodPost, s.api(path), body, nil)
+		if err == nil {
+			return
+		}
+		var status statusError
+		if errors.As(err, &status) && status.code < http.StatusInternalServerError {
+			s.log.Debug("ação recusada", "path", path, "err", err)
+			return
+		}
+		if attempt >= s.cfg.Attempts || ctx.Err() != nil {
+			s.log.Warn("ação perdida depois de várias tentativas", "path", path, "tentativas", attempt, "err", err)
+			return
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(delay):
+		}
+		delay *= 2
 	}
 }
 
@@ -361,13 +508,7 @@ func (s *Sim) handle(ctx context.Context, e event) {
 		s.mu.Lock()
 		o.store = e.StoreID
 		s.mu.Unlock()
-		prep := 8 + s.intn(13)
-		s.later(ctx, s.between(time.Second, 3*time.Second), func() {
-			s.post(ctx, fmt.Sprintf("/api/stores/%d/orders/%d/accept", e.StoreID, e.Order), map[string]int{"prep_minutes": prep})
-			s.later(ctx, time.Duration(float64(prep)*60/s.cfg.Speed*float64(time.Second)), func() {
-				s.post(ctx, fmt.Sprintf("/api/stores/%d/orders/%d/ready", e.StoreID, e.Order), nil)
-			})
-		})
+		s.storeAccepts(ctx, e.Order, e.StoreID)
 	case "oferta_enviada":
 		if _, ours := s.couriers[e.Courier]; !ours {
 			return

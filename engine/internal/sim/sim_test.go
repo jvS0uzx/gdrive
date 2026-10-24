@@ -1,8 +1,14 @@
 package sim
 
 import (
+	"context"
+	"io"
+	"log/slog"
 	"math"
+	"net/http"
+	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/jvS0uzx/gdrive/engine/internal/live"
 )
@@ -54,5 +60,42 @@ func TestRotaDeUmPontoSo(t *testing.T) {
 	got := PositionAt(Path{Coords: [][2]float64{{-38.5, -12.9}}, Cumulative: []float64{0}}, 10)
 	if got.Lat != -12.9 || got.Lon != -38.5 {
 		t.Fatalf("%+v", got)
+	}
+}
+
+func serverWith(t *testing.T, codes ...int) (*Sim, *int) {
+	t.Helper()
+	calls := 0
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		code := codes[min(calls, len(codes)-1)]
+		calls++
+		w.WriteHeader(code)
+	}))
+	t.Cleanup(ts.Close)
+	s := New(Config{APIURL: ts.URL, Attempts: 4, RetryDelay: time.Millisecond}, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	return s, &calls
+}
+
+func TestAcaoTentaDeNovoQuandoAApiCai(t *testing.T) {
+	s, calls := serverWith(t, 503, 502, 200)
+	s.post(context.Background(), "/api/orders/1/deliver", nil)
+	if *calls != 3 {
+		t.Fatalf("esperado 3 chamadas até o 200, foram %d", *calls)
+	}
+}
+
+func TestConflitoNaoGanhaNovaTentativa(t *testing.T) {
+	s, calls := serverWith(t, 409)
+	s.post(context.Background(), "/api/orders/1/pickup", nil)
+	if *calls != 1 {
+		t.Fatalf("409 é resposta final, foram %d chamadas", *calls)
+	}
+}
+
+func TestDesisteDepoisDoLimiteDeTentativas(t *testing.T) {
+	s, calls := serverWith(t, 500)
+	s.post(context.Background(), "/api/orders/1/deliver", nil)
+	if *calls != 4 {
+		t.Fatalf("esperado parar em 4 tentativas, foram %d", *calls)
 	}
 }

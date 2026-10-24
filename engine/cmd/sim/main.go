@@ -54,6 +54,8 @@ func main() {
 		DeclineRate: number("DECLINE_RATE", 0.1),
 		StoreRadius: number("STORE_RADIUS_M", 4000),
 		Seed:        uint64(number("SEED", 42)),
+		Attempts:    int(number("ATTEMPTS", 6)),
+		RetryDelay:  duration("RETRY_DELAY", time.Second),
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
