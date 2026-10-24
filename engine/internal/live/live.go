@@ -8,6 +8,7 @@ import (
 	"math"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -29,6 +30,25 @@ const (
 
 func CourierKey(id int64) string { return "courier:" + strconv.FormatInt(id, 10) }
 func TargetKey(id int64) string  { return "target:" + strconv.FormatInt(id, 10) }
+func PlanKey(order int64) string { return "plan:" + strconv.FormatInt(order, 10) }
+func TrackKey(order int64, phase string) string {
+	return "track:" + strconv.FormatInt(order, 10) + ":" + phase
+}
+
+const (
+	journeyTTL = 24 * time.Hour
+	trackLimit = 5000
+)
+
+type Plan struct {
+	From    [2]float64   `json:"from"`
+	Path    [][2]float64 `json:"path"`
+	Seconds float64      `json:"seconds"`
+	Meters  float64      `json:"meters"`
+	At      int64        `json:"at"`
+}
+
+type Planner func(from, to Point) (Plan, bool)
 
 type Point struct {
 	Lat float64 `json:"lat"`
@@ -75,6 +95,7 @@ type courierState struct {
 var finished = map[string]bool{"entregue": true, "cancelado": true, "recusado": true}
 
 type Hub struct {
+	planner  Planner
 	rdb      *redis.Client
 	log      *slog.Logger
 	mu       sync.RWMutex
@@ -93,6 +114,10 @@ func New(rdb *redis.Client, log *slog.Logger) *Hub {
 		central:  map[chan []byte]struct{}{},
 		watchers: map[int64]map[chan []byte]struct{}{},
 	}
+}
+
+func (h *Hub) SetPlanner(p Planner) {
+	h.planner = p
 }
 
 func (h *Hub) Run(ctx context.Context) {
@@ -312,6 +337,7 @@ type tracker struct {
 	id      int64
 	target  map[string]string
 	fetched time.Time
+	planned string
 }
 
 func (t *tracker) update(ctx context.Context, p Point) error {
@@ -337,11 +363,40 @@ func (t *tracker) update(ctx context.Context, p Point) error {
 				return err
 			}
 		}
+		if key := t.target["order_id"] + ":" + pos.Phase; key != t.planned {
+			t.planned = key
+			t.plan(ctx, order, pos.Phase, p, Point{lat, lon})
+		}
+		track := TrackKey(order, pos.Phase)
+		pipe.RPush(ctx, track, strconv.FormatFloat(p.Lon, 'f', 6, 64)+","+strconv.FormatFloat(p.Lat, 'f', 6, 64)+","+strconv.FormatInt(now.UnixMilli(), 10))
+		pipe.LTrim(ctx, track, -trackLimit, -1)
+		pipe.Expire(ctx, track, journeyTTL)
 	}
 	data, _ := json.Marshal(pos)
 	pipe.Publish(ctx, PositionsTopic, data)
 	_, err := pipe.Exec(ctx)
 	return err
+}
+
+func (t *tracker) plan(ctx context.Context, order int64, phase string, from, to Point) {
+	if t.hub.planner == nil {
+		return
+	}
+	plan, ok := t.hub.planner(from, to)
+	if !ok {
+		return
+	}
+	plan.From, plan.At = [2]float64{from.Lon, from.Lat}, time.Now().UnixMilli()
+	data, err := json.Marshal(plan)
+	if err != nil {
+		return
+	}
+	key := PlanKey(order)
+	if err := t.hub.rdb.HSetNX(ctx, key, phase, data).Err(); err != nil {
+		t.hub.log.Warn("rota prevista não gravada", "order", order, "err", err)
+		return
+	}
+	t.hub.rdb.Expire(ctx, key, journeyTTL)
 }
 
 func (t *tracker) arrive(ctx context.Context, order int64, phase string) error {
@@ -466,4 +521,58 @@ func (h *Hub) Positions(ctx context.Context, ids []int64) (map[int64]Point, erro
 		}
 	}
 	return out, nil
+}
+
+func parseTrack(points []string) [][3]float64 {
+	out := make([][3]float64, 0, len(points))
+	for _, raw := range points {
+		parts := strings.Split(raw, ",")
+		if len(parts) != 3 {
+			continue
+		}
+		var v [3]float64
+		ok := true
+		for i, part := range parts {
+			f, err := strconv.ParseFloat(part, 64)
+			if err != nil {
+				ok = false
+				break
+			}
+			v[i] = f
+		}
+		if ok {
+			out = append(out, v)
+		}
+	}
+	return out
+}
+
+func (h *Hub) ServeJourney(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil || id <= 0 {
+		http.Error(w, "pedido inválido", http.StatusBadRequest)
+		return
+	}
+	ctx := r.Context()
+	raw, err := h.rdb.HGetAll(ctx, PlanKey(id)).Result()
+	if err != nil {
+		http.Error(w, "redis indisponível", http.StatusServiceUnavailable)
+		return
+	}
+	plans := map[string]Plan{}
+	for phase, data := range raw {
+		var p Plan
+		if json.Unmarshal([]byte(data), &p) == nil {
+			plans[phase] = p
+		}
+	}
+	tracks := map[string][][3]float64{}
+	for _, phase := range []string{"loja", "cliente"} {
+		points, err := h.rdb.LRange(ctx, TrackKey(id, phase), 0, -1).Result()
+		if err == nil && len(points) > 0 {
+			tracks[phase] = parseTrack(points)
+		}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{"order_id": id, "plan": plans, "track": tracks})
 }

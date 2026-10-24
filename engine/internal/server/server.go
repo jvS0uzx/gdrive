@@ -145,11 +145,13 @@ func (s *Server) Handler() http.Handler {
 		w.Write(s.addresses)
 	})
 	mux.HandleFunc("POST /route", s.route)
+	mux.HandleFunc("POST /route/alternatives", s.alternatives)
 	if s.hub != nil {
 		mux.HandleFunc("POST /eta", s.eta)
 		mux.HandleFunc("GET /ws/courier", s.hub.ServeCourier)
 		mux.HandleFunc("GET /ws/watch/central", s.hub.ServeCentral)
 		mux.HandleFunc("GET /ws/watch/order/{id}", s.hub.ServeOrder)
+		mux.HandleFunc("GET /journey/{id}", s.hub.ServeJourney)
 	}
 	return mux
 }
@@ -214,6 +216,77 @@ func (s *Server) route(w http.ResponseWriter, r *http.Request) {
 		resp.CumulativeSeconds[i] = round1(p.Cumulative[i])
 	}
 	writeJSON(w, http.StatusOK, resp)
+}
+
+type routeOption struct {
+	Seconds float64    `json:"seconds"`
+	Meters  float64    `json:"meters"`
+	Roads   []road     `json:"roads"`
+	Path    lineString `json:"path"`
+}
+
+func (s *Server) option(p route.Path) *routeOption {
+	o := &routeOption{
+		Seconds: round1(p.Seconds),
+		Meters:  round1(p.Meters),
+		Roads:   s.mainRoads(p.Streets),
+		Path:    lineString{Type: "LineString", Coordinates: make([][2]float64, len(p.Nodes))},
+	}
+	for i, n := range p.Nodes {
+		o.Path.Coordinates[i] = s.city.Point(n)
+	}
+	return o
+}
+
+func (s *Server) alternatives(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
+	var req routeRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "json inválido")
+		return
+	}
+	from, err := s.snap(req.From)
+	if err != nil {
+		writeError(w, statusOf(err), "origem: "+err.Error())
+		return
+	}
+	to, err := s.snap(req.To)
+	if err != nil {
+		writeError(w, statusOf(err), "destino: "+err.Error())
+		return
+	}
+	factor := 1.0
+	if req.Rain {
+		factor = rainFactor
+	}
+	out := map[string]*routeOption{}
+	for name, mode := range map[string]route.Mode{"fastest": route.Fastest, "shortest": route.Shortest, "no_expressway": route.NoExpressway} {
+		if p, ok := s.graph.ShortestBy(from, to, factor, mode); ok {
+			out[name] = s.option(p)
+		} else {
+			out[name] = nil
+		}
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+func (s *Server) Plan(from, to live.Point) (live.Plan, bool) {
+	fx, fy := s.city.ToXY(from.Lat, from.Lon)
+	tx, ty := s.city.ToXY(to.Lat, to.Lon)
+	a, da := s.graph.Nearest(fx, fy)
+	b, db := s.graph.Nearest(tx, ty)
+	if a < 0 || b < 0 || da > maxSnapMeters || db > maxSnapMeters {
+		return live.Plan{}, false
+	}
+	p, ok := s.graph.Shortest(a, b, 1)
+	if !ok {
+		return live.Plan{}, false
+	}
+	plan := live.Plan{Seconds: round1(p.Seconds), Meters: round1(p.Meters), Path: make([][2]float64, len(p.Nodes))}
+	for i, n := range p.Nodes {
+		plan.Path[i] = s.city.Point(n)
+	}
+	return plan, true
 }
 
 type etaRequest struct {

@@ -263,3 +263,33 @@ func TestSemRedisNaoHaTempoReal(t *testing.T) {
 		t.Fatalf("sem redis, /eta respondeu %d", resp.StatusCode)
 	}
 }
+
+func TestAlternativasDeRota(t *testing.T) {
+	ts, c := newTestServer(t)
+	body, _ := json.Marshal(map[string]any{"from": pointOf(c, 0), "to": pointOf(c, int32(len(c.Nodes)-1))})
+	resp, err := http.Post(ts.URL+"/route/alternatives", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var out map[string]*struct {
+		Seconds float64 `json:"seconds"`
+		Meters  float64 `json:"meters"`
+		Path    struct {
+			Coordinates [][2]float64 `json:"coordinates"`
+		} `json:"path"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		t.Fatal(err)
+	}
+	fast, short := out["fastest"], out["shortest"]
+	if fast == nil || short == nil || len(fast.Path.Coordinates) < 2 {
+		t.Fatalf("alternativas incompletas: %+v", out)
+	}
+	if fast.Seconds > short.Seconds || short.Meters > fast.Meters {
+		t.Fatalf("rápida %+v, curta %+v", fast, short)
+	}
+	if _, ok := out["no_expressway"]; !ok {
+		t.Fatal("faltou a chave no_expressway")
+	}
+}

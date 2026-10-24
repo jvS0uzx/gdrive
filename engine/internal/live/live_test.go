@@ -22,6 +22,9 @@ func setup(t *testing.T) (*miniredis.Miniredis, *redis.Client, *httptest.Server)
 	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
 	t.Cleanup(func() { rdb.Close() })
 	hub := New(rdb, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	hub.SetPlanner(func(from, to Point) (Plan, bool) {
+		return Plan{Path: [][2]float64{{from.Lon, from.Lat}, {to.Lon, to.Lat}}, Seconds: 60, Meters: Distance(from, to)}, true
+	})
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	hub.Run(ctx)
@@ -29,6 +32,7 @@ func setup(t *testing.T) (*miniredis.Miniredis, *redis.Client, *httptest.Server)
 	mux.HandleFunc("GET /ws/courier", hub.ServeCourier)
 	mux.HandleFunc("GET /ws/watch/central", hub.ServeCentral)
 	mux.HandleFunc("GET /ws/watch/order/{id}", hub.ServeOrder)
+	mux.HandleFunc("GET /journey/{id}", hub.ServeJourney)
 	ts := httptest.NewServer(mux)
 	t.Cleanup(ts.Close)
 	time.Sleep(50 * time.Millisecond)
@@ -239,5 +243,41 @@ func TestEntregadorQueParouDeMandarPosicaoSaiDaCentral(t *testing.T) {
 	hub.prune(time.Now())
 	if _, ok := hub.couriers[2]; ok {
 		t.Fatal("entregador parado há um minuto continua no estado")
+	}
+}
+
+func TestRotaPrevistaUmaVezPorTrechoERastroPontoAPonto(t *testing.T) {
+	_, rdb, ts := setup(t)
+	ctx := context.Background()
+	rdb.HSet(ctx, TargetKey(5), "order_id", 77, "lat", -12.90, "lon", -38.40, "phase", "loja")
+	conn := dial(t, ts, "/ws/courier?id=5")
+	send(t, conn, Point{-12.95, -38.45})
+	send(t, conn, Point{-12.94, -38.44})
+	send(t, conn, Point{-12.93, -38.43})
+	eventually(t, "três pontos no rastro da ida à loja", func() bool {
+		n, _ := rdb.LLen(ctx, TrackKey(77, "loja")).Result()
+		return n == 3
+	})
+	resp, err := http.Get(ts.URL + "/journey/77")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var j struct {
+		Plan  map[string]Plan         `json:"plan"`
+		Track map[string][][3]float64 `json:"track"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&j); err != nil {
+		t.Fatal(err)
+	}
+	plan, ok := j.Plan["loja"]
+	if !ok || plan.From != [2]float64{-38.45, -12.95} || len(plan.Path) != 2 {
+		t.Fatalf("rota prevista da ida à loja deveria sair do primeiro ponto: %+v", j.Plan)
+	}
+	if got := j.Track["loja"]; len(got) != 3 || got[2][1] != -12.93 || got[0][2] <= 0 {
+		t.Fatalf("rastro da ida à loja: %v", got)
+	}
+	if _, exists := j.Plan["cliente"]; exists {
+		t.Fatal("ainda não existe trecho até o cliente")
 	}
 }

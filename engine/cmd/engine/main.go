@@ -73,6 +73,9 @@ func main() {
 		log.Error("servidor não montou", "err", err)
 		os.Exit(1)
 	}
+	if hub != nil {
+		hub.SetPlanner(srv.Plan)
+	}
 	log.Info("cidade carregada", "cidade", c.Name, "nós", len(c.Nodes), "trechos", len(c.Streets), "em", time.Since(began).Round(time.Millisecond))
 
 	httpSrv := &http.Server{

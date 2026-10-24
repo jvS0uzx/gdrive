@@ -13,12 +13,21 @@ type cellKey struct {
 }
 
 type arcs struct {
-	start  []int32
-	to     []int32
-	sec    []float64
-	meters []float64
-	street []int32
+	start      []int32
+	to         []int32
+	sec        []float64
+	meters     []float64
+	street     []int32
+	expressway []bool
 }
+
+type Mode int
+
+const (
+	Fastest Mode = iota
+	Shortest
+	NoExpressway
+)
 
 type Graph struct {
 	nodes    []city.Node
@@ -43,14 +52,16 @@ func New(c *city.City) *Graph {
 		from, to    int32
 		sec, meters float64
 		street      int32
+		expressway  bool
 	}
 	var all []arc
 	for i, s := range c.Streets {
 		speed := s.SpeedMS()
 		g.maxSpeed = math.Max(g.maxSpeed, speed)
-		all = append(all, arc{s.From, s.To, s.Meters / speed, s.Meters, int32(i)})
+		fast := s.Class == city.ClassExpressway
+		all = append(all, arc{s.From, s.To, s.Meters / speed, s.Meters, int32(i), fast})
 		if !s.OneWay {
-			all = append(all, arc{s.To, s.From, s.Meters / speed, s.Meters, int32(i)})
+			all = append(all, arc{s.To, s.From, s.Meters / speed, s.Meters, int32(i), fast})
 		}
 	}
 	build := func(reverse bool) arcs {
@@ -71,6 +82,7 @@ func New(c *city.City) *Graph {
 		a.sec = make([]float64, len(all))
 		a.meters = make([]float64, len(all))
 		a.street = make([]int32, len(all))
+		a.expressway = make([]bool, len(all))
 		fill := make([]int32, n)
 		copy(fill, a.start[:n])
 		for _, x := range all {
@@ -79,7 +91,7 @@ func New(c *city.City) *Graph {
 				t, h = h, t
 			}
 			k := fill[t]
-			a.to[k], a.sec[k], a.meters[k], a.street[k] = h, x.sec, x.meters, x.street
+			a.to[k], a.sec[k], a.meters[k], a.street[k], a.expressway[k] = h, x.sec, x.meters, x.street, x.expressway
 			fill[t]++
 		}
 		return a
@@ -132,6 +144,10 @@ func abs(v int) int {
 }
 
 func (g *Graph) Shortest(from, to int32, factor float64) (Path, bool) {
+	return g.ShortestBy(from, to, factor, Fastest)
+}
+
+func (g *Graph) ShortestBy(from, to int32, factor float64, mode Mode) (Path, bool) {
 	n := len(g.nodes)
 	dist := make([]float64, n)
 	prevArc := make([]int32, n)
@@ -141,8 +157,23 @@ func (g *Graph) Shortest(from, to int32, factor float64) (Path, bool) {
 		prevArc[i] = -1
 	}
 	target := g.nodes[to]
+	perMeter := factor / g.maxSpeed
+	if mode == Shortest {
+		perMeter = 1
+	}
 	h := func(v int32) float64 {
-		return math.Hypot(g.nodes[v].X-target.X, g.nodes[v].Y-target.Y) / g.maxSpeed * factor
+		return math.Hypot(g.nodes[v].X-target.X, g.nodes[v].Y-target.Y) * perMeter
+	}
+	cost := func(k int32) float64 {
+		switch mode {
+		case Shortest:
+			return g.fwd.meters[k]
+		case NoExpressway:
+			if g.fwd.expressway[k] {
+				return math.Inf(1)
+			}
+		}
+		return g.fwd.sec[k] * factor
 	}
 	dist[from] = 0
 	pq := queue{{from, h(from)}}
@@ -161,7 +192,7 @@ func (g *Graph) Shortest(from, to int32, factor float64) (Path, bool) {
 			if closed[w] {
 				continue
 			}
-			if d := dist[v] + g.fwd.sec[k]*factor; d < dist[w] {
+			if d := dist[v] + cost(k); d < dist[w] {
 				dist[w] = d
 				prevArc[w] = k
 				pq.push(item{w, d + h(w)})

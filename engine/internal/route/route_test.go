@@ -251,3 +251,89 @@ func BenchmarkRotaAtravessandoSalvador(b *testing.B) {
 		g.Shortest(p[0], p[1], 1)
 	}
 }
+
+func dijkstraBy(g *Graph, from int32, factor float64, mode Mode) []float64 {
+	dist := make([]float64, g.Len())
+	for i := range dist {
+		dist[i] = math.Inf(1)
+	}
+	dist[from] = 0
+	pq := queue{{from, 0}}
+	for len(pq) > 0 {
+		it := pq.pop()
+		v := it.node
+		if it.priority > dist[v] {
+			continue
+		}
+		for k := g.fwd.start[v]; k < g.fwd.start[v+1]; k++ {
+			c := g.fwd.sec[k] * factor
+			switch {
+			case mode == Shortest:
+				c = g.fwd.meters[k]
+			case mode == NoExpressway && g.fwd.expressway[k]:
+				continue
+			}
+			w := g.fwd.to[k]
+			if d := dist[v] + c; d < dist[w] {
+				dist[w] = d
+				pq.push(item{w, d})
+			}
+		}
+	}
+	return dist
+}
+
+func TestCadaModoDaOMesmoCustoQueDijkstraComOMesmoPeso(t *testing.T) {
+	for seed := range uint64(300) {
+		g := New(randomCity(seed, 150))
+		rng := rand.New(rand.NewPCG(seed, 9))
+		from := int32(rng.IntN(g.Len()))
+		for _, mode := range []Mode{Shortest, NoExpressway} {
+			all := dijkstraBy(g, from, 1, mode)
+			for range 4 {
+				to := int32(rng.IntN(g.Len()))
+				p, ok := g.ShortestBy(from, to, 1, mode)
+				if ok == math.IsInf(all[to], 1) {
+					t.Fatalf("grafo %d modo %d, %d→%d: achou %v, Dijkstra %v", seed, mode, from, to, ok, all[to])
+				}
+				got := p.Seconds
+				if mode == Shortest {
+					got = p.Meters
+				}
+				if ok && !sameCost(got, all[to]) {
+					t.Fatalf("grafo %d modo %d, %d→%d: %.6f contra Dijkstra %.6f", seed, mode, from, to, got, all[to])
+				}
+			}
+		}
+	}
+}
+
+func TestEscolhidaNuncaPerdeEmTempoECurtaNuncaPerdeEmMetros(t *testing.T) {
+	c, g := salvador(t)
+	rng := rand.New(rand.NewPCG(42, 10))
+	compared := 0
+	for range 150 {
+		from, to := int32(rng.IntN(g.Len())), int32(rng.IntN(g.Len()))
+		fast, _ := g.ShortestBy(from, to, 1, Fastest)
+		short, _ := g.ShortestBy(from, to, 1, Shortest)
+		if fast.Seconds > short.Seconds+1e-6 || short.Meters > fast.Meters+1e-6 {
+			t.Fatalf("%d→%d: rápida %.1f s %.0f m, curta %.1f s %.0f m", from, to, fast.Seconds, fast.Meters, short.Seconds, short.Meters)
+		}
+		calm, ok := g.ShortestBy(from, to, 1, NoExpressway)
+		if !ok {
+			continue
+		}
+		compared++
+		if fast.Seconds > calm.Seconds+1e-6 || short.Meters > calm.Meters+1e-6 {
+			t.Fatalf("%d→%d: sem expressa venceu a escolhida", from, to)
+		}
+		for _, si := range calm.Streets {
+			if c.Streets[si].Class == city.ClassExpressway {
+				t.Fatalf("%d→%d: rota sem expressa passou pelo trecho %d, que é expressa", from, to, si)
+			}
+		}
+	}
+	if compared < 100 {
+		t.Fatalf("só %d de 150 pares têm rota sem via expressa", compared)
+	}
+}
