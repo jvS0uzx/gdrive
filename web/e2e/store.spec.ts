@@ -25,6 +25,7 @@ test("a loja opera na mão: o pedido de teste entra em Novos, é aceito, vai par
     const manual = page.getByRole("switch", { name: /Operar na mão/ });
     await manual.check();
     await expect(manual).toBeChecked();
+    await expect(manual).toHaveAccessibleName(/Você aceita e marca pronto/);
     await expect.poll(async () => (await (await request.get(`/api/stores/${store.id}`)).json()).manual).toBe(true);
 
     const [response] = await Promise.all([
@@ -57,6 +58,7 @@ test("a loja opera na mão: o pedido de teste entra em Novos, é aceito, vai par
 
     await manual.uncheck();
     await expect(manual).not.toBeChecked();
+    await expect(manual).toHaveAccessibleName(/O simulador responde pela loja/);
     await expect.poll(async () => (await (await request.get(`/api/stores/${store.id}`)).json()).manual).toBe(false);
   } finally {
     if (orderId !== null) await request.post(`/api/orders/${orderId}/cancel`);
@@ -68,6 +70,22 @@ test("loja que não existe mostra aviso e caminho de volta", async ({ page }) =>
   await page.goto("/loja/999999999");
   await expect(page.getByText("Loja não encontrada")).toBeVisible();
   await expect(page.getByRole("link", { name: "Escolher outra loja" })).toHaveAttribute("href", "/loja");
+});
+
+test("no computador as quatro colunas da loja ficam lado a lado", async ({ page, request }) => {
+  const [store]: Store[] = await (await request.get("/api/stores?q=bar&limit=1")).json();
+  await page.goto(`/loja/${store.id}`);
+  const boxes: ({ x: number; y: number; width: number } | null)[] = [];
+  for (const key of ["novos", "preparo", "prontos", "sairam"]) {
+    await expect(page.getByTestId(`coluna-${key}`)).toBeVisible();
+    boxes.push(await page.getByTestId(`coluna-${key}`).boundingBox());
+  }
+  for (let i = 1; i < boxes.length; i++) {
+    const [left, right] = [boxes[i - 1], boxes[i]];
+    if (!left || !right) throw new Error("colunas sem dimensão");
+    expect(right.x).toBeGreaterThan(left.x + left.width - 1);
+    expect(Math.abs(right.y - left.y)).toBeLessThan(2);
+  }
 });
 
 test("o painel da loja empilha as colunas no celular", async ({ page, request }) => {

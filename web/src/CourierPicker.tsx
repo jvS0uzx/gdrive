@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import { fetchCouriers, type CourierSummary } from "./api";
+import { COLORS } from "./cityMap";
+import { formatInt } from "./format";
 import { Link } from "./router";
 
 const STATUS_LABELS: Record<CourierSummary["status"], string> = {
@@ -8,32 +10,41 @@ const STATUS_LABELS: Record<CourierSummary["status"], string> = {
   ocupado: "em entrega",
 };
 
-const STATUS_DOTS: Record<CourierSummary["status"], string> = {
-  offline: "bg-zinc-500",
-  livre: "bg-origin",
-  ocupado: "bg-route",
+const STATUS_COLORS: Record<CourierSummary["status"], string> = {
+  offline: "var(--color-faint)",
+  livre: COLORS.free,
+  ocupado: COLORS.busy,
 };
 
 function CourierList({ couriers, testId }: { couriers: CourierSummary[]; testId: string }) {
   return (
-    <ul className="mt-2 divide-y divide-white/5 overflow-hidden rounded-lg border border-white/10 bg-panel">
+    <ul className="mt-2 divide-y divide-line border-y border-line">
       {couriers.map((c) => (
         <li key={c.id}>
           <Link
             to={`/entregador/${c.id}`}
             data-testid={testId}
             data-id={c.id}
-            className="flex items-center justify-between gap-3 px-3 py-2.5 text-sm hover:bg-white/5"
+            className="flex items-center gap-3 px-1 py-2.5 text-sm transition-colors hover:bg-raised"
           >
-            <span className="min-w-0 truncate text-zinc-100">{c.name}</span>
-            <span className="flex shrink-0 items-center gap-1.5 text-xs text-zinc-400">
-              <span className={`size-2 rounded-full ${STATUS_DOTS[c.status]}`} />
+            <span className="min-w-0 flex-1 truncate text-strong">{c.name}</span>
+            <span className="flex shrink-0 items-center gap-2 text-xs text-muted">
+              <span className="size-2 rounded-[2px]" style={{ background: STATUS_COLORS[c.status] }} />
               {STATUS_LABELS[c.status]}
             </span>
           </Link>
         </li>
       ))}
     </ul>
+  );
+}
+
+function Heading({ title, count }: { title: string; count?: number }) {
+  return (
+    <div className="flex items-baseline justify-between">
+      <h2 className="section-title">{title}</h2>
+      {count !== undefined && <span className="num text-xs text-muted">{formatInt(count)}</span>}
+    </div>
   );
 }
 
@@ -60,38 +71,32 @@ export default function CourierPicker() {
 
   return (
     <div className="absolute inset-0 overflow-y-auto">
-      <div className="mx-auto w-full max-w-md px-4 py-6">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">GDrive · entregador</p>
-        <h1 className="mt-1 text-lg font-semibold text-zinc-100">Pilote um entregador pelo celular</h1>
-        <p className="mt-1 text-sm text-zinc-400">
-          Escolha um entregador parado. Você decide se aceita, coleta e entrega; o deslocamento segue a rota em piloto
-          automático.
+      <div className="mx-auto w-full max-w-xl px-4 pb-10 pt-8 sm:px-6">
+        <h1 className="text-[17px] font-semibold tracking-tight">Pilote um entregador pelo celular</h1>
+        <p className="meta mt-1">
+          Escolha um entregador offline. Você aceita, coleta e entrega; o trajeto segue no piloto automático.
         </p>
 
-        {error && <p className="mt-4 text-sm text-target">{error}</p>}
-        {!error && (mine === null || offline === null) && <p className="mt-4 text-sm text-zinc-400">Carregando…</p>}
+        {error && <p className="mt-6 text-sm text-target">{error}</p>}
+        {!error && (mine === null || offline === null) && <p className="meta mt-6">Carregando…</p>}
 
         {mine && mine.length > 0 && (
-          <section className="mt-6">
-            <h2 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500">Já controlados pelo celular</h2>
+          <section className="mt-8">
+            <Heading title="Pilotados pelo celular" count={mine.length} />
             <CourierList couriers={mine} testId="entregador-humano" />
           </section>
         )}
 
         {offline && (
-          <section className="mt-6">
-            <h2 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500">Offline, prontos para assumir</h2>
+          <section className="mt-8">
+            <Heading title="Offline" />
             {offline.length > 0 ? (
               <CourierList couriers={offline} testId="entregador-offline" />
             ) : (
-              <p className="mt-2 text-sm text-zinc-400">Nenhum entregador offline agora.</p>
+              <p className="meta mt-2">Nenhum entregador offline agora.</p>
             )}
           </section>
         )}
-
-        <p className="mt-6 text-xs text-zinc-500">
-          Os demais entregadores estão com o simulador e andam sozinhos pela cidade.
-        </p>
       </div>
     </div>
   );

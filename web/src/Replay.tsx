@@ -4,7 +4,7 @@ import type { Feature } from "geojson";
 import { fetchTrack, type Leg, type LngLat, type OrderTrack, type TrackLeg, type TrackPoint } from "./api";
 import { COLORS, EMPTY, collection, line, panelPadding, pin, point, useCityMap } from "./cityMap";
 import { formatClock, formatDistance, formatDuration } from "./format";
-import { actorLabel, alertHint, alertLabel, eventLabel } from "./labels";
+import { actorLabel, alertLabel, eventLabel } from "./labels";
 import { FloatingCredit, LineSample, MapSurface } from "./MapParts";
 import { LEGS, LEG_COLORS, addPlannedLayer, addWalkedLayers, deviation } from "./routeLayers";
 import { Link } from "./router";
@@ -102,7 +102,7 @@ function addReplayLayers(map: MapLibre) {
 
 function PlayIcon({ playing }: { playing: boolean }) {
   return (
-    <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true">
+    <svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor" aria-hidden="true">
       {playing ? (
         <>
           <rect x="6" y="5" width="4" height="14" rx="1" />
@@ -125,7 +125,6 @@ export default function Replay({ id }: { id: number }) {
   const [speed, setSpeed] = useState(DEFAULT_SPEED);
   const markers = useRef<Marker[]>([]);
   const fitted = useRef(false);
-  const aside = useRef<HTMLElement>(null);
 
   useEffect(() => {
     document.title = `Replay #${id} · GDrive`;
@@ -232,9 +231,7 @@ export default function Replay({ id }: { id: number }) {
       for (const [lon, lat] of l.data.track) bounds.extend([lon, lat]);
       for (const p of l.data.planned ?? []) bounds.extend(p);
     }
-    const below = (aside.current?.offsetHeight ?? 0) + 40;
-    const padding = window.innerWidth > 900 ? panelPadding(72) : { top: below, bottom: 64, left: 32, right: 32 };
-    m.fitBounds(bounds, { padding, maxZoom: 16, duration: 0 });
+    m.fitBounds(bounds, { padding: panelPadding(window.innerWidth >= 768 ? 56 : 28), maxZoom: 16, duration: 0 });
   }, [map, ready, track, legs]);
 
   useEffect(() => {
@@ -260,70 +257,85 @@ export default function Replay({ id }: { id: number }) {
   const late = track?.delivered_at && track.promised_at ? Date.parse(track.delivered_at) > Date.parse(track.promised_at) : null;
 
   return (
-    <div className="absolute inset-0">
-      <MapSurface container={container} ready={ready} />
-      <aside
-        ref={aside}
-        className="absolute left-4 top-4 flex max-h-[55%] w-[min(22rem,calc(100%-2rem))] flex-col overflow-y-auto rounded-xl border border-white/10 bg-panel/95 shadow-2xl backdrop-blur md:max-h-[calc(100%-2rem)]">
-        <header className="px-4 pb-1 pt-4">
-          <div className="flex items-center justify-between gap-3">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">GDrive · replay #{id}</p>
-            <Link to="/historico" className="text-[11px] text-zinc-400 hover:text-zinc-200">
+    <div className="absolute inset-0 flex flex-col md:flex-row">
+      <section className="relative h-[42dvh] shrink-0 md:order-2 md:h-auto md:min-w-0 md:flex-1" aria-label="Mapa do replay">
+        <MapSurface container={container} ready={ready} />
+        <FloatingCredit />
+      </section>
+      <aside className="dock flex min-h-0 flex-1 flex-col overflow-y-auto border-t md:order-1 md:w-[22rem] md:flex-none md:border-r md:border-t-0">
+        <header className="px-4 pb-4 pt-4">
+          <div className="flex items-baseline justify-between gap-3">
+            <p className="text-xs text-muted">
+              Replay do pedido <span className="mono">#{id}</span>
+            </p>
+            <Link to="/historico" className="link text-xs">
               Histórico
             </Link>
           </div>
           {cityError && <p className="mt-1 text-xs text-target">{cityError}</p>}
           {missing ? (
             <>
-              <h1 className="mt-1 text-base font-semibold text-zinc-100" data-testid="sem-trajeto">
+              <h1 className="mt-1 text-[17px] font-semibold tracking-tight" data-testid="sem-trajeto">
                 Trajeto ainda não gravado
               </h1>
-              <p className="mt-1 pb-3 text-sm text-zinc-400">
-                O trajeto é salvo quando a entrega termina. Pedido cancelado ou em andamento não tem replay.
-              </p>
-              <Link to={`/pedido/${id}`} className="inline-block pb-3 text-sm text-route hover:underline">
-                Ver o pedido #{id}
+              <p className="mt-1 text-sm text-muted">Só entregas concluídas têm replay.</p>
+              <Link to={`/pedido/${id}`} className="link mt-3 inline-block text-sm">
+                Ver o pedido <span className="mono">#{id}</span>
               </Link>
             </>
           ) : !track ? (
-            <p className={`mt-2 pb-3 text-sm ${loadError ? "text-target" : "text-zinc-400"}`}>
+            <p className={`mt-2 text-sm ${loadError ? "text-target" : "text-muted"}`}>
               {loadError ?? "Carregando o trajeto…"}
             </p>
           ) : (
-            <>
-              <h1 className="mt-1 text-base font-semibold text-zinc-100" data-testid="loja">
-                {track.store.name}
-              </h1>
-              <p className="mt-0.5 text-xs text-zinc-400">
-                {track.courier_id !== null ? `Entregador #${track.courier_id}` : "Sem entregador"}
-                {track.delivered_at && ` · entregue às ${formatClock(track.delivered_at)}`}
-                {late !== null && (
-                  <span className={late ? "text-target" : "text-origin"}>{late ? " · atrasado" : " · no prazo"}</span>
-                )}
-              </p>
-            </>
+            <h1 className="mt-1 text-[17px] font-semibold tracking-tight" data-testid="loja">
+              {track.store.name}
+            </h1>
           )}
         </header>
 
+        {track && (
+          <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-1.5 border-t border-line px-4 py-3 text-[13px]">
+            <dt className="text-muted">Entregador</dt>
+            <dd>
+              {track.courier_name ?? (track.courier_id !== null ? <span className="mono">#{track.courier_id}</span> : "—")}
+            </dd>
+            <dt className="text-muted">Entregue</dt>
+            <dd className="mono">{track.delivered_at ? formatClock(track.delivered_at) : "—"}</dd>
+            {late !== null && track.promised_at && (
+              <>
+                <dt className="text-muted">Prazo</dt>
+                <dd>
+                  <span className={late ? "text-target" : "text-origin"}>{late ? "atrasado" : "no prazo"}</span>
+                  <span className="ml-2 text-muted">
+                    até <span className="mono">{formatClock(track.promised_at)}</span>
+                  </span>
+                </dd>
+              </>
+            )}
+          </dl>
+        )}
+
         {track && range && (
           <>
-            <section className="mx-4 mt-3 rounded-lg border border-white/10 px-3 py-3" aria-label="Controles do replay">
+            <section className="border-y border-line px-4 py-4" aria-label="Controles do replay">
               <div className="flex items-center gap-3">
                 <button
                   type="button"
                   onClick={togglePlay}
                   data-testid="replay-play"
                   aria-label={playing ? "Pausar" : "Reproduzir"}
-                  className="grid size-9 shrink-0 place-items-center rounded-full bg-route text-ink hover:bg-route/90"
+                  className="btn btn-primary size-10 shrink-0 rounded-full px-0"
                 >
                   <PlayIcon playing={playing} />
                 </button>
                 <div className="min-w-0 flex-1">
-                  <p className="text-lg font-semibold leading-tight tabular-nums text-zinc-100" data-testid="replay-relogio">
+                  <p className="mono text-[22px] font-medium leading-7" data-testid="replay-relogio">
                     {formatClock(new Date(clock).toISOString(), true)}
                   </p>
-                  <p className="text-[11px] tabular-nums text-zinc-500">
-                    {elapsedLabel(clock - range.start)} de {elapsedLabel(range.end - range.start)} gravados
+                  <p className="text-xs text-faint">
+                    <span className="mono">{elapsedLabel(clock - range.start)}</span> de{" "}
+                    <span className="mono">{elapsedLabel(range.end - range.start)}</span>
                   </p>
                 </div>
               </div>
@@ -336,19 +348,23 @@ export default function Replay({ id }: { id: number }) {
                 onChange={(e) => seek(range.start + Number(e.target.value))}
                 aria-label="Posição do replay"
                 data-testid="replay-slider"
-                className="mt-3 w-full accent-route"
+                className="mt-4 w-full accent-strong"
               />
-              <div className="mt-2 flex items-center justify-between gap-2">
-                <span className="text-[11px] text-zinc-500">Velocidade</span>
-                <div className="flex overflow-hidden rounded-md border border-white/10" role="group" aria-label="Velocidade do replay">
+              <div className="mt-3 flex items-center justify-between gap-2">
+                <span className="meta">Velocidade</span>
+                <div
+                  className="flex h-7 overflow-hidden rounded-md border border-line text-xs"
+                  role="group"
+                  aria-label="Velocidade do replay"
+                >
                   {SPEEDS.map((s) => (
                     <button
                       key={s}
                       type="button"
                       aria-pressed={speed === s}
                       onClick={() => setSpeed(s)}
-                      className={`px-2.5 py-1 text-xs tabular-nums ${
-                        speed === s ? "bg-white/15 text-zinc-100" : "text-zinc-400 hover:bg-white/5"
+                      className={`num border-l border-line px-2.5 transition-colors first:border-l-0 ${
+                        speed === s ? "bg-raised font-medium text-strong" : "text-muted hover:text-strong"
                       }`}
                     >
                       {s}×
@@ -358,9 +374,9 @@ export default function Replay({ id }: { id: number }) {
               </div>
             </section>
 
-            <section className="px-4 pt-4">
-              <h2 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500">Trechos</h2>
-              <ul className="mt-2 flex flex-col gap-2">
+            <section className="px-4 pt-5">
+              <h2 className="section-title">Trechos</h2>
+              <ul className="mt-2.5 space-y-3">
                 {legs.map((l) => {
                   const active = clock >= l.start && clock <= l.end;
                   const share = l.deviation.total > 0 ? Math.round((l.deviation.inside / l.deviation.total) * 100) : null;
@@ -368,34 +384,34 @@ export default function Replay({ id }: { id: number }) {
                     <li
                       key={l.leg}
                       data-testid={`trecho-${l.leg}`}
-                      className={`rounded-lg border px-3 py-2 text-xs ${active ? "border-white/25 bg-white/5" : "border-white/10"}`}
+                      className="border-l-2 pl-3 transition-colors"
+                      style={{ borderColor: active ? LEG_COLORS[l.leg] : "var(--color-line)" }}
                     >
-                      <p className="flex items-center gap-1.5 text-zinc-200">
+                      <p className="flex items-center gap-1.5 text-[13px] font-medium">
                         <LineSample color={LEG_COLORS[l.leg]} dashed />
                         <LineSample color={LEG_COLORS[l.leg]} />
                         {LEG_LABELS[l.leg]}
                       </p>
-                      <dl className="mt-1.5 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5">
-                        <dt className="text-zinc-500">Andou</dt>
-                        <dd className="tabular-nums text-zinc-200">
+                      <dl className="mt-1 grid grid-cols-[auto_1fr] gap-x-4 gap-y-0.5 text-xs">
+                        <dt className="text-muted">Andou</dt>
+                        <dd className="num">
                           {formatDistance(l.data.meters)}
                           {l.data.planned_meters !== null && (
-                            <span className="text-zinc-500"> de {formatDistance(l.data.planned_meters)} previstos</span>
+                            <span className="text-faint"> de {formatDistance(l.data.planned_meters)} previstos</span>
                           )}
                         </dd>
-                        <dt className="text-zinc-500">Duração</dt>
-                        <dd className="tabular-nums text-zinc-200">{formatDuration((l.end - l.start) / 1000)}</dd>
-                        <dt className="text-zinc-500">Desvio máximo</dt>
-                        <dd className="tabular-nums text-zinc-200">
-                          {l.data.planned ? (
-                            <>
-                              {Math.round(l.deviation.max)} m
-                              {share !== null && <span className="text-zinc-500"> · {share}% dos pontos na rota</span>}
-                            </>
-                          ) : (
-                            <span className="text-zinc-500">sem rota prevista</span>
-                          )}
+                        <dt className="text-muted">Duração</dt>
+                        <dd className="num">{formatDuration((l.end - l.start) / 1000)}</dd>
+                        <dt className="text-muted">Desvio máximo</dt>
+                        <dd className="num">
+                          {l.data.planned ? `${Math.round(l.deviation.max)} m` : <span className="text-faint">sem rota prevista</span>}
                         </dd>
+                        {l.data.planned && share !== null && (
+                          <>
+                            <dt className="text-muted">Perto da rota</dt>
+                            <dd className="num">{share}% dos pontos</dd>
+                          </>
+                        )}
                       </dl>
                     </li>
                   );
@@ -404,36 +420,33 @@ export default function Replay({ id }: { id: number }) {
             </section>
 
             {alerts.length > 0 && (
-              <section className="px-4 pt-4">
-                <h2 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500">Alertas</h2>
-                <ul className="mt-2 flex flex-col gap-1.5" data-testid="replay-alertas">
+              <section className="px-4 pt-5">
+                <h2 className="section-title">Alertas</h2>
+                <ul className="mt-2 space-y-1" data-testid="replay-alertas">
                   {alerts.map((a, i) => {
                     const open = clock >= a.opened && (a.closed === null || clock < a.closed);
                     const passed = clock >= a.opened;
+                    const detail = alertDetail(a.detail);
                     return (
                       <li key={i}>
                         <button
                           type="button"
                           onClick={() => seek(a.opened)}
                           data-passou={passed ? "true" : "false"}
-                          className={`w-full rounded-md border px-2 py-1.5 text-left text-xs transition-colors ${
-                            open
-                              ? "border-target/50 bg-target/10 text-zinc-100"
-                              : passed
-                                ? "border-white/10 text-zinc-300"
-                                : "border-white/5 text-zinc-600"
+                          className={`block w-full border-l-2 py-1 pl-3 pr-1 text-left text-xs transition-colors hover:bg-raised ${
+                            open ? "border-target" : "border-line"
                           }`}
                         >
                           <span className="flex items-baseline justify-between gap-2">
-                            <span className={open ? "font-semibold text-target" : undefined}>{alertLabel(a.kind)}</span>
-                            <span className="tabular-nums text-[11px]">
+                            <span className={open ? "font-medium text-target" : passed ? "text-strong" : "text-muted"}>
+                              {alertLabel(a.kind)}
+                            </span>
+                            <span className="mono shrink-0 text-faint">
                               {formatClock(a.opened_at, true)}
-                              {a.closed_at && ` → ${formatClock(a.closed_at, true)}`}
+                              {a.closed_at && `–${formatClock(a.closed_at, true)}`}
                             </span>
                           </span>
-                          <span className="block text-[11px] opacity-80">
-                            {[alertHint(a.kind), alertDetail(a.detail)].filter(Boolean).join(" ")}
-                          </span>
+                          {detail && <span className="mt-0.5 block text-faint">{detail}</span>}
                         </button>
                       </li>
                     );
@@ -442,27 +455,28 @@ export default function Replay({ id }: { id: number }) {
               </section>
             )}
 
-            <section className="flex flex-col px-4 pb-3 pt-4">
-              <h2 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500">Linha do tempo</h2>
-              <ol className="mt-1" data-testid="replay-linha-do-tempo">
+            <section className="px-4 pb-4 pt-5">
+              <h2 className="section-title">Linha do tempo</h2>
+              <ol className="-mx-2 mt-1.5" data-testid="replay-linha-do-tempo">
                 {events.map((e, i) => {
                   const passed = e.ms <= clock;
+                  const current = i === lastEvent;
                   return (
                     <li key={i}>
                       <button
                         type="button"
                         onClick={() => seek(e.ms)}
                         data-passou={passed ? "true" : "false"}
-                        className={`flex w-full gap-3 rounded px-1 py-1 text-left text-xs transition-colors hover:bg-white/5 ${
-                          i === lastEvent ? "bg-white/5" : ""
+                        className={`flex w-full gap-3 rounded px-2 py-1 text-left text-[13px] transition-colors hover:bg-raised ${
+                          current ? "bg-raised" : ""
                         }`}
                       >
-                        <time dateTime={e.at} className={`shrink-0 tabular-nums ${passed ? "text-zinc-400" : "text-zinc-600"}`}>
+                        <time dateTime={e.at} className={`mono shrink-0 pt-px text-xs ${passed ? "text-muted" : "text-faint"}`}>
                           {formatClock(e.at, true)}
                         </time>
-                        <span className={passed ? (i === lastEvent ? "text-zinc-100" : "text-zinc-300") : "text-zinc-600"}>
+                        <span className={passed ? (current ? "text-strong" : "text-muted") : "text-faint"}>
                           {eventLabel(e.type)}
-                          <span className="text-zinc-600"> · {actorLabel(e.actor)}</span>
+                          <span className="ml-1.5 text-xs text-faint">{actorLabel(e.actor)}</span>
                         </span>
                       </button>
                     </li>
@@ -471,26 +485,32 @@ export default function Replay({ id }: { id: number }) {
               </ol>
             </section>
 
-            <footer className="flex flex-wrap gap-x-3 gap-y-1 border-t border-white/10 px-4 py-2.5 text-[11px] text-zinc-400">
+            <footer className="mt-auto flex flex-wrap gap-x-4 gap-y-1 border-t border-line px-4 py-3 text-[11px] text-faint">
               {[
-                ["Loja", COLORS.store],
-                ["Cliente", COLORS.customer],
+                ["loja", COLORS.store],
+                ["cliente", COLORS.customer],
               ].map(([label, color]) => (
                 <span key={label} className="flex items-center gap-1.5">
                   <span className="size-2 rounded-full" style={{ background: color }} />
                   {label}
                 </span>
               ))}
-              <span className="w-full text-zinc-500">Tracejado é a rota prevista; sólido, o que o entregador andou até o relógio.</span>
+              {LEGS.map((leg) => (
+                <span key={leg} className="flex items-center gap-1.5">
+                  <LineSample color={LEG_COLORS[leg]} dashed />
+                  <LineSample color={LEG_COLORS[leg]} />
+                  {LEG_LABELS[leg].toLowerCase()}
+                </span>
+              ))}
+              <span>tracejado é o previsto</span>
             </footer>
           </>
         )}
 
         {track && !range && (
-          <p className="px-4 pb-4 pt-2 text-sm text-zinc-400">Esta entrega não tem pontos de GPS gravados.</p>
+          <p className="px-4 pb-4 text-sm text-muted">Esta entrega não tem pontos de GPS gravados.</p>
         )}
       </aside>
-      <FloatingCredit />
     </div>
   );
 }

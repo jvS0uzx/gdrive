@@ -5,7 +5,19 @@ import { Link, navigate } from "./router";
 
 const PAGE_SIZE = 50;
 
-const HEADERS = ["Pedido", "Loja", "Entregador", "Feito às", "Entregue às", "Duração", "Distância", "Prazo", "Alertas"];
+const fit = "w-px whitespace-nowrap px-3 py-2.5";
+
+const COLUMNS = {
+  pedido: { label: "Pedido", className: fit },
+  loja: { label: "Loja", className: "w-full max-w-0 truncate px-3 py-2.5" },
+  entregador: { label: "Entregador", className: `${fit} hidden md:table-cell` },
+  feito: { label: "Feito às", className: `${fit} hidden lg:table-cell` },
+  entregue: { label: "Entregue às", className: fit },
+  duracao: { label: "Duração", className: `${fit} hidden text-right sm:table-cell` },
+  distancia: { label: "Distância", className: `${fit} hidden text-right md:table-cell` },
+  prazo: { label: "Prazo", className: fit },
+  alertas: { label: "Alertas", className: `${fit} hidden text-right lg:table-cell` },
+};
 
 export default function History() {
   const [offset, setOffset] = useState(0);
@@ -39,20 +51,19 @@ export default function History() {
 
   return (
     <div className="absolute inset-0 overflow-y-auto">
-      <div className="mx-auto w-full max-w-6xl px-4 py-5">
-        <div className="flex flex-wrap items-end justify-between gap-3">
+      <div className="mx-auto w-full max-w-6xl px-4 pb-10 pt-8 sm:px-6">
+        <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
           <header>
-            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">GDrive · histórico</p>
-            <h1 className="mt-1 text-lg font-semibold text-zinc-100">Entregas feitas</h1>
-            <p className="mt-1 text-sm text-zinc-400">Abra uma entrega para rever o trajeto do entregador no mapa.</p>
+            <h1 className="text-[17px] font-semibold tracking-tight">Entregas feitas</h1>
+            <p className="meta mt-1">Abra uma entrega para rever o trajeto no mapa.</p>
           </header>
-          <div className="flex items-center gap-2 text-xs text-zinc-400">
-            <span className="tabular-nums" data-testid="paginacao">
+          <div className="flex items-center gap-2">
+            <span className="num mr-1 text-xs text-muted" data-testid="paginacao">
               {page ? `${formatInt(first)}–${formatInt(last)} de ${formatInt(total)}` : "—"}
             </span>
             <button
               type="button"
-              className="rounded-md border border-white/15 px-2.5 py-1 text-zinc-200 hover:bg-white/5 disabled:opacity-40"
+              className="btn"
               disabled={loading || offset === 0}
               onClick={() => setOffset((o) => Math.max(0, o - PAGE_SIZE))}
             >
@@ -60,7 +71,7 @@ export default function History() {
             </button>
             <button
               type="button"
-              className="rounded-md border border-white/15 px-2.5 py-1 text-zinc-200 hover:bg-white/5 disabled:opacity-40"
+              className="btn"
               disabled={loading || offset + PAGE_SIZE >= total}
               onClick={() => setOffset((o) => o + PAGE_SIZE)}
             >
@@ -71,18 +82,18 @@ export default function History() {
 
         {error && <p className="mt-4 text-sm text-target">{error}</p>}
 
-        <div className="mt-4 overflow-x-auto rounded-xl border border-white/10 bg-panel">
-          <table className="w-full min-w-[52rem] text-left text-xs" data-testid="tabela-historico">
+        <div className="-mx-3 mt-6">
+          <table className="w-full text-left text-[13px]" data-testid="tabela-historico">
             <thead>
-              <tr className="border-b border-white/10 text-[11px] uppercase tracking-[0.12em] text-zinc-500">
-                {HEADERS.map((h) => (
-                  <th key={h} scope="col" className="px-3 py-2 font-semibold">
-                    {h}
+              <tr className="border-b border-line text-xs text-muted">
+                {Object.values(COLUMNS).map((c) => (
+                  <th key={c.label} scope="col" className={`${c.className} pb-2 pt-0 font-medium`}>
+                    {c.label}
                   </th>
                 ))}
               </tr>
             </thead>
-            <tbody className={loading && page ? "opacity-60" : undefined}>
+            <tbody className={`transition-opacity ${loading && page ? "opacity-60" : ""}`}>
               {page?.items.map((item) => (
                 <tr
                   key={item.id}
@@ -91,51 +102,43 @@ export default function History() {
                     if ((e.target as HTMLElement).closest("a")) return;
                     navigate(`/historico/${item.id}`);
                   }}
-                  className="cursor-pointer border-b border-white/5 last:border-0 hover:bg-white/5"
+                  className="cursor-pointer border-b border-line transition-colors hover:bg-panel"
                 >
-                  <td className="px-3 py-2">
-                    <Link to={`/historico/${item.id}`} className="font-semibold tabular-nums text-route hover:underline">
+                  <td className={COLUMNS.pedido.className}>
+                    <Link to={`/historico/${item.id}`} className="mono text-strong underline-offset-2 hover:underline">
                       #{item.id}
                     </Link>
                   </td>
-                  <td className="max-w-56 truncate px-3 py-2 text-zinc-200">{item.store_name}</td>
-                  <td className="px-3 py-2 tabular-nums text-zinc-300">
+                  <td className={`${COLUMNS.loja.className} text-strong`}>{item.store_name}</td>
+                  <td className={`${COLUMNS.entregador.className} mono text-muted`}>
                     {item.courier_id !== null ? `#${item.courier_id}` : "—"}
                   </td>
-                  <td className="px-3 py-2 tabular-nums text-zinc-300">{formatClock(item.created_at)}</td>
-                  <td className="px-3 py-2 tabular-nums text-zinc-300">
+                  <td className={`${COLUMNS.feito.className} mono text-muted`}>{formatClock(item.created_at)}</td>
+                  <td className={`${COLUMNS.entregue.className} mono text-muted`}>
                     {item.delivered_at ? formatClock(item.delivered_at) : "—"}
                   </td>
-                  <td className="px-3 py-2 tabular-nums text-zinc-300">
+                  <td className={`${COLUMNS.duracao.className} num text-muted`}>
                     {item.seconds !== null ? formatDuration(item.seconds) : "—"}
                   </td>
-                  <td className="px-3 py-2 tabular-nums text-zinc-300">
+                  <td className={`${COLUMNS.distancia.className} num text-muted`}>
                     {item.meters !== null ? formatDistance(item.meters) : "—"}
                   </td>
-                  <td className="px-3 py-2">
+                  <td className={COLUMNS.prazo.className}>
                     {item.late === null ? (
-                      <span className="text-zinc-500">—</span>
-                    ) : item.late ? (
-                      <span className="rounded border border-target/40 bg-target/10 px-1.5 py-0.5 text-[11px] text-target">
-                        atrasado
-                      </span>
+                      <span className="text-faint">—</span>
                     ) : (
-                      <span className="rounded border border-origin/30 bg-origin/10 px-1.5 py-0.5 text-[11px] text-origin">
-                        no prazo
-                      </span>
+                      <span className={item.late ? "text-target" : "text-origin"}>{item.late ? "atrasado" : "no prazo"}</span>
                     )}
                   </td>
-                  <td className={`px-3 py-2 tabular-nums ${item.alerts > 0 ? "text-route" : "text-zinc-500"}`}>
+                  <td className={`${COLUMNS.alertas.className} num ${item.alerts > 0 ? "text-strong" : "text-faint"}`}>
                     {item.alerts > 0 ? formatInt(item.alerts) : "—"}
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
-          {page && page.items.length === 0 && (
-            <p className="px-3 py-4 text-sm text-zinc-400">Nenhuma entrega concluída ainda.</p>
-          )}
-          {!page && !error && <p className="px-3 py-4 text-sm text-zinc-400">Carregando o histórico…</p>}
+          {page && page.items.length === 0 && <p className="meta px-3 py-4">Nenhuma entrega concluída ainda.</p>}
+          {!page && !error && <p className="meta px-3 py-4">Carregando o histórico…</p>}
         </div>
       </div>
     </div>

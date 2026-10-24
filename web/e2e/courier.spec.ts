@@ -143,6 +143,7 @@ test("corrida completa pelo celular: vai à loja, retira quando fica pronto e en
     await expect(ride).toHaveAttribute("data-pedido", String(id));
     await expect(ride.getByTestId("corrida-status")).toHaveText(/Indo para a loja|Na loja/);
     await expect(ride).toContainText(store.name);
+    await expect(page.getByRole("button", { name: "Ficar offline" })).toHaveCount(0);
     await expect(ride.getByTestId("corrida-status")).toHaveText("Na loja", { timeout: 60_000 });
 
     await expect(ride.getByTestId("ainda-nao-pronto")).toBeVisible();

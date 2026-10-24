@@ -1,18 +1,18 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type APIRequestContext } from "@playwright/test";
 
 type HistoryItem = { id: number };
 
+async function trackedDelivery(request: APIRequestContext): Promise<number> {
+  const history: { items: HistoryItem[] } = await (await request.get("/api/history?limit=10")).json();
+  for (const item of history.items) {
+    if ((await request.get(`/api/orders/${item.id}/track`)).ok()) return item.id;
+  }
+  throw new Error("nenhuma entrega recente com trajeto gravado");
+}
+
 test("o histórico abre o replay de uma entrega e o play avança o relógio", async ({ page, request }) => {
   test.setTimeout(60_000);
-  const history: { items: HistoryItem[] } = await (await request.get("/api/history?limit=10")).json();
-  let id: number | null = null;
-  for (const item of history.items) {
-    if ((await request.get(`/api/orders/${item.id}/track`)).ok()) {
-      id = item.id;
-      break;
-    }
-  }
-  if (id === null) throw new Error("nenhuma entrega recente com trajeto gravado");
+  const id = await trackedDelivery(request);
 
   await page.goto("/historico");
   const table = page.getByTestId("tabela-historico");
@@ -24,6 +24,10 @@ test("o histórico abre o replay de uma entrega e o play avança o relógio", as
   await expect(page).toHaveURL(new RegExp(`/historico/${id}$`));
   await expect(page.getByTestId("mapa")).toHaveAttribute("data-ready", "true", { timeout: 20_000 });
   await expect(page.getByTestId("loja")).not.toBeEmpty();
+  const map = await page.getByTestId("mapa").boundingBox();
+  const title = await page.getByTestId("loja").boundingBox();
+  if (!map || !title) throw new Error("replay sem dimensão");
+  expect(map.x).toBeGreaterThanOrEqual(title.x + title.width);
   await expect(page.getByTestId("trecho-cliente")).toContainText(/Andou\s*[\d,]+ k?m de [\d,]+ k?m previstos/);
   await expect(page.getByTestId("trecho-cliente")).toContainText(/Desvio máximo\s*\d+ m/);
 
@@ -49,6 +53,26 @@ test("o histórico abre o replay de uma entrega e o play avança o relógio", as
   await expect(events.last()).toHaveAttribute("data-passou", "true");
   await expect(events.first()).toHaveAttribute("data-passou", "true");
   await expect(page.getByTestId("replay-linha-do-tempo")).toContainText("Pedido entregue");
+});
+
+test("no celular o histórico cabe sem rolagem lateral e o replay põe o mapa acima do painel", async ({
+  page,
+  request,
+}) => {
+  const id = await trackedDelivery(request);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/historico");
+  await expect(page.getByTestId("linha-historico").first()).toContainText(/no prazo|atrasado/);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+
+  await page.goto(`/historico/${id}`);
+  await expect(page.getByTestId("mapa")).toHaveAttribute("data-ready", "true", { timeout: 20_000 });
+  const map = await page.getByTestId("mapa").boundingBox();
+  const title = await page.getByTestId("loja").boundingBox();
+  if (!map || !title) throw new Error("replay sem dimensão");
+  expect(map.width).toBeGreaterThan(380);
+  expect(title.y).toBeGreaterThan(map.y + map.height - 1);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
 });
 
 test("entrega sem trajeto gravado mostra aviso em vez de mapa vazio", async ({ page }) => {

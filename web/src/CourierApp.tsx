@@ -44,10 +44,10 @@ const RIDE_LABELS: Record<string, string> = {
   no_cliente: "No endereço do cliente",
 };
 
-const STATUS_CHIPS: Record<CourierView["status"], { label: string; dot: string }> = {
-  offline: { label: "Offline", dot: "bg-zinc-500" },
-  livre: { label: "Livre", dot: "bg-origin" },
-  ocupado: { label: "Em entrega", dot: "bg-route" },
+const STATUS_CHIPS: Record<CourierView["status"], { label: string; color: string }> = {
+  offline: { label: "Offline", color: "var(--color-faint)" },
+  livre: { label: "Livre", color: COLORS.free },
+  ocupado: { label: "Em entrega", color: COLORS.busy },
 };
 
 const lngLat = (p: Point): LngLat => [p.lon, p.lat];
@@ -201,10 +201,14 @@ function addCourierLayers(map: MapLibre) {
   });
 }
 
-const bigPrimary =
-  "h-12 w-full rounded-xl bg-route text-base font-semibold text-ink hover:bg-route/90 disabled:cursor-not-allowed disabled:opacity-50";
-const bigSecondary =
-  "h-12 w-full rounded-xl border border-white/15 text-base text-zinc-100 hover:bg-white/5 disabled:cursor-not-allowed disabled:opacity-50";
+const big = "btn h-12 w-full rounded-lg text-[15px]";
+const bigPrimary = `${big} btn-primary`;
+
+const toggle =
+  "relative h-5 w-9 shrink-0 cursor-pointer appearance-none rounded-full bg-line transition-colors before:absolute before:left-0.5 before:top-0.5 before:size-4 before:rounded-full before:bg-muted before:transition-transform checked:bg-strong checked:before:translate-x-4 checked:before:bg-ink disabled:cursor-not-allowed disabled:opacity-50";
+
+const frame =
+  "flex h-full w-full flex-col overflow-hidden bg-panel sm:w-[24.5rem] sm:rounded-[2.25rem] sm:border-[7px] sm:border-raised sm:ring-1 sm:ring-line";
 
 export default function CourierApp({ id }: { id: number }) {
   const { container, map, ready, error: cityError } = useCityMap(addCourierLayers);
@@ -417,8 +421,8 @@ export default function CourierApp({ id }: { id: number }) {
     return (
       <div className="grid h-full place-items-center p-6 text-center">
         <div>
-          <p className="text-base font-semibold text-zinc-100">{missing ? "Entregador não encontrado" : loadError}</p>
-          <Link to="/entregador" className="mt-2 inline-block text-sm text-route hover:underline">
+          <p className="text-[15px] font-semibold">{missing ? "Entregador não encontrado" : loadError}</p>
+          <Link to="/entregador" className="link mt-2 inline-block text-sm">
             Escolher um entregador
           </Link>
         </div>
@@ -429,18 +433,20 @@ export default function CourierApp({ id }: { id: number }) {
   if (simOwned) {
     return (
       <div className="absolute inset-0 overflow-y-auto">
-        <div className="mx-auto w-full max-w-[26rem] px-4 py-6">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">GDrive · entregador #{id}</p>
-          <h1 className="mt-1 text-lg font-semibold text-zinc-100">{courier.name}</h1>
-          <section className="mt-4 rounded-xl border border-white/10 bg-panel p-4" data-testid="do-simulador">
-            <p className="text-sm text-zinc-100">Este entregador é do simulador.</p>
-            <p className="mt-1 text-sm text-zinc-400">
-              Ele aceita, coleta e entrega sozinho. Para pilotar pelo celular, escolha um entregador que esteja offline.
+        <div className="mx-auto w-full max-w-md px-4 pb-10 pt-8 sm:px-6">
+          <p className="text-xs text-muted">
+            Entregador <span className="mono">#{id}</span>
+          </p>
+          <h1 className="mt-0.5 text-[17px] font-semibold tracking-tight">{courier.name}</h1>
+          <section className="mt-5 border-l-2 border-line pl-3" data-testid="do-simulador">
+            <p className="text-sm text-strong">Este entregador é do simulador.</p>
+            <p className="mt-1 text-sm text-muted">
+              Ele trabalha sozinho. Para pilotar pelo celular, escolha um que esteja offline.
             </p>
-            <Link to="/entregador" className="mt-3 inline-block text-sm text-route hover:underline">
-              Escolher outro entregador
-            </Link>
           </section>
+          <Link to="/entregador" className="link mt-4 inline-block text-sm">
+            Escolher outro entregador
+          </Link>
         </div>
       </div>
     );
@@ -451,77 +457,78 @@ export default function CourierApp({ id }: { id: number }) {
   const current = drive.current && drive.current.key === legKey && routeKey === legKey ? drive.current : null;
   const remaining = current ? current.cumulative[current.cumulative.length - 1] - current.elapsed : null;
   const offerLeft = offer ? Math.max(0, Math.ceil((Date.parse(offer.expires_at) - Date.now()) / 1000)) : 0;
+  const hurry = offerLeft <= 10;
 
   return (
-    <div className="absolute inset-0 overflow-y-auto">
-      <div className="mx-auto flex min-h-full w-full max-w-[26rem] flex-col bg-panel sm:my-6 sm:min-h-0 sm:overflow-hidden sm:rounded-2xl sm:border sm:border-white/10 sm:shadow-2xl">
-        <header className="px-4 pb-3 pt-4">
-          <div className="flex items-center justify-between gap-3">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">GDrive · entregador #{id}</p>
-            <p className="flex items-center gap-1.5 text-[11px] text-zinc-400" data-testid="conexao" aria-live="polite">
-              <span
-                className={`size-2 rounded-full ${online ? (connected ? "bg-origin" : "animate-pulse bg-route") : "bg-zinc-600"}`}
-              />
+    <div className="absolute inset-0 flex justify-center sm:py-5">
+      <div className={frame}>
+        <header className="flex shrink-0 items-start justify-between gap-3 px-4 pb-3 pt-4">
+          <div className="min-w-0">
+            <h1 className="truncate text-[17px] font-semibold tracking-tight">{courier?.name ?? "Carregando…"}</h1>
+            <p
+              className={`mt-0.5 text-xs ${online ? (connected ? "text-muted" : "text-route") : "text-target"}`}
+              data-testid="conexao"
+              aria-live="polite"
+            >
               {online ? (connected ? "GPS ao vivo" : "conectando…") : "sem GPS"}
             </p>
           </div>
-          <div className="mt-1 flex items-center justify-between gap-3">
-            <h1 className="truncate text-lg font-semibold text-zinc-100">{courier?.name ?? "Carregando…"}</h1>
-            {chip && (
-              <span
-                className="flex shrink-0 items-center gap-1.5 rounded-full border border-white/10 px-2.5 py-1 text-xs text-zinc-200"
-                data-testid="situacao"
-              >
-                <span className={`size-2 rounded-full ${chip.dot}`} />
-                {chip.label}
-              </span>
-            )}
-          </div>
-          {cityError && <p className="mt-1 text-xs text-target">{cityError}</p>}
+          {chip && (
+            <p className="flex shrink-0 items-center gap-2 pt-1 text-[13px]" data-testid="situacao">
+              <span className="size-2 rounded-[2px]" style={{ background: chip.color }} />
+              {chip.label}
+            </p>
+          )}
         </header>
+        {cityError && <p className="px-4 pb-2 text-xs text-target">{cityError}</p>}
 
-        <div className="relative h-60 shrink-0 overflow-hidden border-y border-white/10">
+        <div className="relative min-h-44 flex-1 border-y border-line">
           <MapSurface container={container} ready={ready} />
           {!ready && !cityError && (
-            <p className="absolute inset-0 grid place-items-center text-xs text-zinc-500">Carregando a cidade…</p>
+            <p className="absolute inset-0 grid place-items-center text-xs text-faint">Carregando a cidade…</p>
           )}
-          <p className="absolute bottom-1 right-1 rounded bg-panel/85 px-1.5 py-0.5 text-[10px] leading-snug text-zinc-500">
+          <p className="absolute bottom-0 right-0 rounded-tl-md bg-ink/80 px-1.5 py-0.5 text-[10px] leading-snug text-faint">
             <OsmCredit />
           </p>
         </div>
 
-        <div className="flex flex-1 flex-col gap-3 p-4">
+        <div className="max-h-[68%] shrink-0 overflow-y-auto px-4 pb-4 pt-4">
           {offer && (
-            <section className="rounded-xl border border-route/40 bg-route/10 p-4" data-testid="oferta" data-pedido={offer.order_id}>
+            <section data-testid="oferta" data-pedido={offer.order_id}>
               <div className="flex items-baseline justify-between gap-3">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-route">
-                  Nova oferta · pedido #{offer.order_id}
-                </p>
-                <p className="text-sm font-semibold tabular-nums text-zinc-100" data-testid="oferta-contagem">
+                <h2 className="section-title">
+                  Nova oferta <span className="mono ml-1 font-normal text-muted">#{offer.order_id}</span>
+                </h2>
+                <p
+                  className={`num text-[13px] font-medium ${hurry ? "text-target" : "text-strong"}`}
+                  data-testid="oferta-contagem"
+                >
                   {offerLeft} s
                 </p>
               </div>
-              <div className="mt-2 h-1 overflow-hidden rounded-full bg-white/10" aria-hidden="true">
+              <div className="mt-2 h-1 overflow-hidden rounded-full bg-raised" aria-hidden="true">
                 <div
-                  className="h-full rounded-full bg-route transition-[width] duration-1000 ease-linear"
+                  className={`h-full rounded-full transition-[width] duration-1000 ease-linear ${hurry ? "bg-target" : "bg-strong"}`}
                   style={{ width: `${Math.min(100, (offerLeft / OFFER_SECONDS) * 100)}%` }}
                 />
               </div>
-              <h2 className="mt-3 text-base font-semibold text-zinc-100">{offer.store.name}</h2>
-              <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
-                <dt className="text-zinc-400">Até a loja</dt>
-                <dd className="tabular-nums text-zinc-100">
-                  {here ? formatDistance(metersBetween(here, lngLat(offer.store))) : "—"} · {formatDuration(offer.eta_seconds)}
+              <p className="mt-3 text-[15px] font-semibold">{offer.store.name}</p>
+              <dl className="mt-1.5 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-[13px]">
+                <dt className="text-muted">Até a loja</dt>
+                <dd className="num">
+                  {here ? formatDistance(metersBetween(here, lngLat(offer.store))) : "—"}
+                  <span className="ml-2 text-muted">{formatDuration(offer.eta_seconds)}</span>
                 </dd>
-                <dt className="text-zinc-400">Loja ao cliente</dt>
-                <dd className="tabular-nums text-zinc-100">
-                  {formatDistance(metersBetween(lngLat(offer.store), lngLat(offer.customer)))} em linha reta
+                <dt className="text-muted">Loja ao cliente</dt>
+                <dd className="num">
+                  {formatDistance(metersBetween(lngLat(offer.store), lngLat(offer.customer)))}
+                  <span className="ml-2 text-muted">em linha reta</span>
                 </dd>
               </dl>
               <div className="mt-4 grid grid-cols-2 gap-2">
                 <button
                   type="button"
-                  className={bigSecondary}
+                  className={big}
                   disabled={busy}
                   onClick={() => run(() => declineOffer(offer.id, id))}
                 >
@@ -540,39 +547,50 @@ export default function CourierApp({ id }: { id: number }) {
           )}
 
           {ride && (
-            <section className="rounded-xl border border-white/10 bg-white/[0.03] p-4" data-testid="corrida" data-pedido={ride.id}>
-              <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500">Pedido #{ride.id}</p>
-              <p className="mt-1 text-xl font-semibold leading-tight text-route" data-testid="corrida-status" aria-live="polite">
+            <section data-testid="corrida" data-pedido={ride.id}>
+              <p className="text-xs text-muted">
+                Pedido <span className="mono">#{ride.id}</span>
+              </p>
+              <p
+                className="mt-0.5 text-[22px] font-semibold leading-tight tracking-tight"
+                data-testid="corrida-status"
+                aria-live="polite"
+              >
                 {RIDE_LABELS[ride.status] ?? ride.status}
               </p>
-              <p className="mt-1 text-sm text-zinc-300">{ride.store.name}</p>
+              <p className="mt-1 text-sm text-muted">{ride.store.name}</p>
               {leg && (
-                <p className="mt-2 text-xs text-zinc-400" data-testid="chegada">
-                  {!autopilot
-                    ? "Piloto desligado: você está parado."
-                    : remaining === null
-                      ? "Calculando a rota…"
-                      : remaining > 0
-                        ? `Chega em ~${formatDuration(remaining / speed)} · ${leg === "loja" ? "até a loja" : "até o cliente"}`
-                        : "Chegando…"}
+                <p className="mt-2 text-[13px] text-strong" data-testid="chegada">
+                  {!autopilot ? (
+                    "Parado, piloto desligado"
+                  ) : remaining === null ? (
+                    <span className="text-muted">Calculando a rota…</span>
+                  ) : remaining > 0 ? (
+                    <>
+                      Chega {leg === "loja" ? "à loja" : "ao cliente"} em{" "}
+                      <span className="num">~{formatDuration(remaining / speed)}</span>
+                    </>
+                  ) : (
+                    "Chegando…"
+                  )}
                 </p>
               )}
               {ride.status === "na_loja" && (
-                <div className="mt-3">
+                <>
                   {!ride.ready_at && (
-                    <p className="mb-2 text-sm text-route" data-testid="ainda-nao-pronto">
+                    <p className="mt-3 border-l-2 border-muted pl-3 text-[13px] text-strong" data-testid="ainda-nao-pronto">
                       A comida ainda não está pronta. Espere a loja marcar pronto.
                     </p>
                   )}
                   <button
                     type="button"
-                    className={bigPrimary}
+                    className={`${bigPrimary} mt-3`}
                     disabled={busy}
                     onClick={() => run(() => pickupOrder(ride.id, id))}
                   >
                     Confirmar retirada
                   </button>
-                </div>
+                </>
               )}
               {ride.status === "no_cliente" && (
                 <button
@@ -588,43 +606,35 @@ export default function CourierApp({ id }: { id: number }) {
           )}
 
           {courier && !offer && !ride && (
-            <section className="rounded-xl border border-white/10 bg-white/[0.03] p-4" data-testid="espera">
+            <section data-testid="espera">
               {notice && (
-                <p className="mb-2 text-sm text-origin" data-testid="aviso-entrega">
+                <p className="mb-3 border-l-2 border-origin pl-3 text-[13px] text-origin" data-testid="aviso-entrega">
                   {notice}
                 </p>
               )}
-              {online ? (
-                <>
-                  <p className="text-sm text-zinc-100">Esperando um pedido</p>
-                  <p className="mt-1 text-xs text-zinc-400">
-                    A oferta vai para o entregador livre que chega mais rápido à loja. Você tem {OFFER_SECONDS} s para
-                    responder.
-                  </p>
-                </>
-              ) : (
-                <>
-                  <p className="text-sm text-zinc-100">Você está offline</p>
-                  <p className="mt-1 text-xs text-zinc-400">Fique online para receber ofertas de pedidos perto de você.</p>
-                </>
-              )}
+              <p className="text-[15px] font-semibold">{online ? "Esperando um pedido" : "Você está offline"}</p>
+              <p className="meta mt-0.5">
+                {online
+                  ? `As ofertas aparecem aqui. Você tem ${OFFER_SECONDS} s para responder.`
+                  : "Fique online para receber ofertas perto de você."}
+              </p>
             </section>
           )}
 
           {actionError && (
-            <p className="text-sm text-target" data-testid="erro-acao" role="alert">
+            <p className="mt-3 text-sm text-target" data-testid="erro-acao" role="alert">
               {actionError}
             </p>
           )}
 
-          <div className={`mt-auto flex-col gap-3 pt-2 ${courier ? "flex" : "hidden"}`}>
-            <label className="flex cursor-pointer items-center justify-between gap-3 rounded-lg border border-white/10 px-3 py-2">
+          <div className={`mt-4 flex-col gap-3 border-t border-line pt-4 ${courier ? "flex" : "hidden"}`}>
+            <label className="flex cursor-pointer items-center justify-between gap-3">
               <span>
-                <span className="block text-sm text-zinc-100">Piloto automático</span>
-                <span className="block text-xs text-zinc-400">
+                <span className="block text-[13px] font-medium">Piloto automático</span>
+                <span className="meta block">
                   {autopilot
                     ? `Segue a rota a ${speed}× a velocidade da via.`
-                    : "Desligado, o entregador fica parado. A central avisa em 30 s."}
+                    : "Desligado, você fica parado. A central avisa em 30 s."}
                 </span>
               </span>
               <input
@@ -632,7 +642,7 @@ export default function CourierApp({ id }: { id: number }) {
                 role="switch"
                 checked={autopilot}
                 onChange={(e) => setAutopilot(e.target.checked)}
-                className="size-4 shrink-0 accent-route"
+                className={toggle}
               />
             </label>
             {courier?.status === "offline" ? (
@@ -644,20 +654,10 @@ export default function CourierApp({ id }: { id: number }) {
               >
                 Ficar online
               </button>
-            ) : courier ? (
-              <>
-                <button
-                  type="button"
-                  className={bigSecondary}
-                  disabled={busy || courier.status === "ocupado"}
-                  onClick={() => run(() => courierOffline(id))}
-                >
-                  Ficar offline
-                </button>
-                {courier.status === "ocupado" && (
-                  <p className="-mt-1 text-center text-xs text-zinc-500">Termine a entrega para ficar offline.</p>
-                )}
-              </>
+            ) : courier?.status === "livre" ? (
+              <button type="button" className={big} disabled={busy} onClick={() => run(() => courierOffline(id))}>
+                Ficar offline
+              </button>
             ) : null}
           </div>
         </div>
