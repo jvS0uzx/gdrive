@@ -2,7 +2,7 @@ import type { RefObject } from "react";
 
 export function MapSurface({ container, ready }: { container: RefObject<HTMLDivElement | null>; ready: boolean }) {
   return (
-    <div className="absolute inset-0">
+    <div className="absolute inset-0 isolate">
       <div ref={container} className="h-full w-full" data-testid="mapa" data-ready={ready ? "true" : "false"} />
     </div>
   );

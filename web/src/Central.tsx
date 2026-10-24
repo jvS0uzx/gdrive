@@ -4,12 +4,13 @@ import type { Feature } from "geojson";
 import { fetchStats, type LiveOrder, type LngLat, type Point, type Stats } from "./api";
 import { COLORS, EMPTY, byZoom, collection, line, point, useCityMap } from "./cityMap";
 import { formatDuration, formatInt } from "./format";
-import { ACTIVE_STATUSES, statusFill, statusLabel, statusTone } from "./labels";
+import { ACTIVE_STATUSES, alertLabel, statusFill, statusLabel, statusTone } from "./labels";
 import { useSocket } from "./live";
 import { FloatingCredit, MapSurface } from "./MapParts";
 import OrderAnalysis from "./OrderAnalysis";
 import { addAlternativeLayers, addPlannedLayer, addWalkedLayers } from "./routeLayers";
 import { Link } from "./router";
+import SimControls, { CourierFaults } from "./SimControls";
 
 type CourierTuple = [id: number, lon: number, lat: number, busy: number];
 
@@ -17,6 +18,7 @@ interface Snapshot {
   type: "snapshot";
   couriers: CourierTuple[];
   orders: LiveOrder[];
+  rain?: boolean;
 }
 
 type Selection = { kind: "courier" | "order"; id: number } | null;
@@ -26,13 +28,21 @@ interface Card {
   root: HTMLAnchorElement;
   body: HTMLDivElement;
   name: HTMLDivElement;
+  badge: HTMLSpanElement;
   look: string;
 }
 
 const PICKABLE = ["entregadores", "lojas", "clientes"];
 const STATS_EVERY_MS = 5000;
 const NAMES_FROM_ZOOM = 14;
-const CARD_BODY = "rounded-md px-1.5 py-0.5 text-ink shadow-lg transition-colors duration-500";
+const CARD_BODY = "relative rounded-md px-1.5 py-0.5 text-ink shadow-lg transition-colors duration-500";
+
+const alertKinds = (o: LiveOrder) => Object.keys(o.alerts ?? {});
+
+function ageOf(ms: number, now: number): string {
+  const seconds = Math.max(0, Math.round((now - ms) / 1000));
+  return seconds < 60 ? `${seconds} s` : `${Math.floor(seconds / 60)} min`;
+}
 
 const lngLat = (p: Point): LngLat => [p.lon, p.lat];
 
@@ -53,11 +63,16 @@ function createCard(id: number, onPick: (id: number) => void): Card {
   label.textContent = `#${id}`;
   const name = document.createElement("div");
   name.className = "max-w-28 truncate text-[10px] font-medium leading-3";
-  body.append(label, name);
+  const badge = document.createElement("span");
+  badge.className =
+    "absolute -right-1.5 -top-1.5 grid size-3.5 place-items-center rounded-full bg-target text-[9px] font-bold leading-none text-ink ring-1 ring-ink";
+  badge.textContent = "!";
+  badge.hidden = true;
+  body.append(label, name, badge);
   root.append(body);
   const marker = new Marker({ element: root, anchor: "bottom" });
   root.setAttribute("aria-label", `Pedido #${id}`);
-  return { marker, root, body, name, look: "" };
+  return { marker, root, body, name, badge, look: "" };
 }
 
 function cardAnchor(order: LiveOrder, couriers: Map<number, LngLat>): LngLat | null {
@@ -112,7 +127,14 @@ function addLiveLayers(map: MapLibre) {
     source: "entregadores",
     paint: {
       "circle-radius": byZoom(3, 5, 8),
-      "circle-color": ["case", ["==", ["get", "busy"], 1], COLORS.busy, COLORS.free],
+      "circle-color": [
+        "case",
+        ["==", ["get", "alert"], 1],
+        COLORS.target,
+        ["==", ["get", "busy"], 1],
+        COLORS.busy,
+        COLORS.free,
+      ],
       "circle-stroke-color": COLORS.ink,
       "circle-stroke-width": 1.5,
     },
@@ -210,8 +232,13 @@ export default function Central() {
     const m = map.current;
     if (!m || !ready || !snapshot) return;
     const placed = snapshot.orders.filter((o) => o.store);
+    const alerting = new Set(
+      snapshot.orders.filter((o) => o.courier_id !== undefined && alertKinds(o).length > 0).map((o) => o.courier_id),
+    );
     m.getSource<GeoJSONSource>("entregadores")?.setData(
-      collection(snapshot.couriers.map(([id, lon, lat, busy]) => point([lon, lat], { id, busy }))),
+      collection(
+        snapshot.couriers.map(([id, lon, lat, busy]) => point([lon, lat], { id, busy, alert: alerting.has(id) ? 1 : 0 })),
+      ),
     );
     m.getSource<GeoJSONSource>("lojas")?.setData(collection(placed.map((o) => point(lngLat(o.store!), { id: o.id }))));
     m.getSource<GeoJSONSource>("clientes")?.setData(
@@ -240,18 +267,25 @@ export default function Central() {
       }
       card.marker.setLngLat(at).setOffset([0, -4 - index * step]);
       const selected = o.id === selectedId;
-      const look = `${CARD_BODY} ${statusFill(o.status)} ${selected ? "ring-2 ring-white" : "ring-1 ring-ink/70"}`;
+      const kinds = alertKinds(o);
+      const ring = selected ? "ring-2 ring-white" : kinds.length > 0 ? "ring-2 ring-target" : "ring-1 ring-ink/70";
+      const look = `${CARD_BODY} ${statusFill(o.status)} ${ring}`;
       if (card.look !== look) {
         card.body.className = look;
         card.root.dataset.status = o.status;
         card.root.dataset.selected = String(selected);
-        card.root.style.zIndex = selected ? "20" : "";
+        card.root.style.zIndex = selected ? "20" : kinds.length > 0 ? "10" : "";
         card.look = look;
+      }
+      const alerts = kinds.join(",");
+      if ((card.root.dataset.alerts ?? "") !== alerts) {
+        card.root.dataset.alerts = alerts;
+        card.badge.hidden = kinds.length === 0;
       }
       const name = o.store_name ?? "";
       if (card.name.textContent !== name) card.name.textContent = name;
       card.name.hidden = !zoomed || !name;
-      card.root.title = [`#${o.id}`, name, statusLabel(o.status)].filter(Boolean).join(" · ");
+      card.root.title = [`#${o.id}`, name, statusLabel(o.status), ...kinds.map(alertLabel)].filter(Boolean).join(" · ");
       seen.add(o.id);
     }
     for (const [id, card] of cards.current) {
@@ -326,7 +360,11 @@ export default function Central() {
     const byStatus: Record<string, number> = {};
     for (const o of snapshot.orders) byStatus[o.status] = (byStatus[o.status] ?? 0) + 1;
     const orders = [...snapshot.orders].sort((a, b) => b.id - a.id);
-    return { total: snapshot.couriers.length, busy, free: snapshot.couriers.length - busy, byStatus, orders };
+    const alerted = snapshot.orders
+      .filter((o) => alertKinds(o).length > 0)
+      .map((o) => ({ order: o, since: Math.min(...Object.values(o.alerts ?? {}).map((at) => at ?? Date.now())) }))
+      .sort((a, b) => a.since - b.since);
+    return { total: snapshot.couriers.length, busy, free: snapshot.couriers.length - busy, byStatus, orders, alerted };
   }, [snapshot]);
 
   const selectedOrder = selectedId !== null ? snapshot?.orders.find((o) => o.id === selectedId) : undefined;
@@ -401,6 +439,43 @@ export default function Central() {
           )}
         </section>
 
+        <section className="px-4 pt-4" data-testid="alertas">
+          <div className="flex items-baseline justify-between">
+            <h2 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500">Alertas</h2>
+            <span
+              data-testid="alertas-abertos"
+              className={`text-sm font-semibold tabular-nums ${summary?.alerted.length ? "text-target" : "text-zinc-100"}`}
+            >
+              {summary ? formatInt(summary.alerted.length) : "—"}
+            </span>
+          </div>
+          {summary && summary.alerted.length > 0 ? (
+            <ul className="mt-1.5 max-h-32 space-y-0.5 overflow-y-auto text-xs" data-testid="lista-alertas">
+              {summary.alerted.map(({ order, since }) => (
+                <li key={order.id}>
+                  <button
+                    type="button"
+                    onClick={() => setSelection({ kind: "order", id: order.id })}
+                    onMouseEnter={() => setHovered(order.id)}
+                    onMouseLeave={() => setHovered(null)}
+                    className="flex w-full items-baseline justify-between gap-2 rounded px-1 py-0.5 text-left hover:bg-white/5"
+                  >
+                    <span className="min-w-0 truncate">
+                      <span className="tabular-nums text-zinc-500">#{order.id}</span>{" "}
+                      <span className="text-target">{alertKinds(order).map(alertLabel).join(" · ")}</span>
+                    </span>
+                    <span className="shrink-0 tabular-nums text-zinc-500">{ageOf(since, Date.now())}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="mt-1 text-[11px] text-zinc-500">{summary ? "Nenhum alerta aberto." : ""}</p>
+          )}
+        </section>
+
+        <SimControls liveRain={snapshot?.rain} />
+
         {selectedCourier && (
           <section className="mx-4 mt-4 rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-xs" data-testid="selecao">
             <div className="flex items-start justify-between gap-3">
@@ -416,6 +491,9 @@ export default function Central() {
                     Analisar o pedido #{courierOrder.id} →
                   </button>
                 )}
+                <div className="mt-2">
+                  <CourierFaults courierId={selectedCourier[0]} />
+                </div>
               </div>
               <button
                 type="button"
@@ -461,6 +539,7 @@ export default function Central() {
           {[
             ["Entregador livre", COLORS.free],
             ["Entregador ocupado", COLORS.busy],
+            ["Com alerta", COLORS.target],
             ["Loja", COLORS.storeDot],
           ].map(([label, color]) => (
             <span key={label} className="flex items-center gap-1.5">

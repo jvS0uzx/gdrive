@@ -29,7 +29,30 @@ const EVENT_LABELS: Record<string, string> = {
   pedido_recusado_pela_loja: "Loja recusou o pedido",
   pedido_expirado_na_loja: "Loja não respondeu a tempo",
   pedido_sem_entregador: "Ainda sem entregador disponível",
+  pedido_atrasado: "Pedido passou do horário prometido",
+  sinal_perdido: "Entregador ficou sem sinal",
+  entregador_parado: "Entregador parado",
+  desvio_de_rota: "Entregador saiu da rota prevista",
+  alerta_resolvido: "Alerta resolvido",
 };
+
+const ALERT_LABELS: Record<string, string> = {
+  sinal_perdido: "Sem sinal",
+  parado: "Parado",
+  desvio: "Fora da rota",
+  atraso: "Atrasado",
+  sem_entregador: "Sem entregador",
+};
+
+const ALERT_HINTS: Record<string, string> = {
+  sinal_perdido: "O entregador parou de mandar posição.",
+  parado: "O entregador não sai do lugar a caminho do destino.",
+  desvio: "O entregador está longe da rota prevista.",
+  atraso: "O pedido passou do horário prometido ao cliente.",
+  sem_entregador: "Nenhum entregador livre aceitou a corrida até 6 km.",
+};
+
+export const ALERT_KINDS = ["sinal_perdido", "parado", "desvio", "sem_entregador", "atraso"] as const;
 
 const ACTOR_LABELS: Record<string, string> = {
   cliente: "cliente",
@@ -38,6 +61,7 @@ const ACTOR_LABELS: Record<string, string> = {
   despacho: "despacho",
   rastreio: "GPS",
   sistema: "sistema",
+  central: "central",
 };
 
 const STATUS_TONES: Record<string, string> = {
@@ -81,4 +105,12 @@ export function statusTone(status: string): string {
 
 export function statusFill(status: string): string {
   return STATUS_FILLS[status] ?? "bg-zinc-400";
+}
+
+export function alertLabel(kind: string): string {
+  return ALERT_LABELS[kind] ?? readable(kind);
+}
+
+export function alertHint(kind: string): string {
+  return ALERT_HINTS[kind] ?? "";
 }

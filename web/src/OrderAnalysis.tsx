@@ -1,10 +1,14 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
 import { LngLatBounds, type GeoJSONSource, type Map as MapLibre } from "maplibre-gl";
 import {
+  assignOrder,
   fetchAlternatives,
+  fetchCandidates,
   fetchDispatch,
   fetchJourney,
   fetchOrder,
+  unassignOrder,
+  type Candidate,
   type Dispatch,
   type Journey,
   type Leg,
@@ -18,10 +22,11 @@ import {
 } from "./api";
 import { COLORS, EMPTY } from "./cityMap";
 import { formatClock, formatDistance, formatDuration, formatMeters } from "./format";
-import { statusFill, statusLabel, statusTone } from "./labels";
+import { alertHint, alertLabel, statusFill, statusLabel, statusTone } from "./labels";
 import { LineSample } from "./MapParts";
 import { LEGS, LEG_COLORS, OFF_ROUTE_METERS, alternativeFeatures, deviation, journeyFeatures } from "./routeLayers";
 import { Link } from "./router";
+import { CourierFaults } from "./SimControls";
 
 type Stage = "loja" | "cliente" | "fixo";
 
@@ -53,6 +58,9 @@ const ALTERNATIVES = [
   { key: "shortest", label: "Mais curta em metros", color: COLORS.shortest, dashed: true },
   { key: "no_expressway", label: "Sem via expressa", color: COLORS.noExpressway, dashed: true },
 ] as const;
+
+const UNASSIGNABLE = ["a_caminho_da_loja", "na_loja"];
+const MOVING = ["a_caminho_da_loja", "em_rota"];
 
 const lngLat = (p: Point): LngLat => [p.lon, p.lat];
 
@@ -128,7 +136,120 @@ function RouteTable({ alternatives }: { alternatives: RouteAlternatives | null }
   );
 }
 
-function OfferCard({ offer, index }: { offer: Offer; index: number }) {
+function Operation({ orderId, order, status }: { orderId: number; order: LiveOrder | undefined; status: string }) {
+  const [candidates, setCandidates] = useState<Candidate[] | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<{ text: string; error: boolean } | null>(null);
+  const courier = order?.courier_id;
+  const alerts = Object.entries(order?.alerts ?? {}).sort((a, b) => (a[1] ?? 0) - (b[1] ?? 0));
+
+  useEffect(() => {
+    setCandidates(null);
+  }, [status]);
+
+  const act = (work: () => Promise<unknown>, done: string) => {
+    setBusy(true);
+    work()
+      .then(() => setMessage({ text: done, error: false }))
+      .catch((err: Error) => setMessage({ text: err.message, error: true }))
+      .finally(() => setBusy(false));
+  };
+
+  const loadCandidates = () => {
+    setBusy(true);
+    fetchCandidates(orderId)
+      .then((list) => {
+        setCandidates(list);
+        setMessage(null);
+      })
+      .catch((err: Error) => setMessage({ text: err.message, error: true }))
+      .finally(() => setBusy(false));
+  };
+
+  const canUnassign = courier !== undefined && UNASSIGNABLE.includes(status);
+  const canAssign = status === "em_preparo";
+  const canFault = courier !== undefined && MOVING.includes(status);
+  if (!order || (!alerts.length && !canUnassign && !canAssign && !canFault)) return null;
+
+  return (
+    <section data-testid="analise-operacao">
+      <Heading>Operação</Heading>
+      {alerts.length > 0 && (
+        <ul className="mt-2 space-y-1.5" data-testid="alertas-do-pedido">
+          {alerts.map(([kind, at]) => (
+            <li key={kind} className="rounded-md border border-target/40 bg-target/10 px-2 py-1.5 text-xs">
+              <p className="flex items-baseline justify-between gap-2">
+                <span className="font-medium text-target">{alertLabel(kind)}</span>
+                {at ? <span className="text-[11px] text-zinc-500">desde {formatClock(new Date(at).toISOString(), true)}</span> : null}
+              </p>
+              <p className="mt-0.5 text-[11px] text-zinc-300">{alertHint(kind)}</p>
+            </li>
+          ))}
+        </ul>
+      )}
+      <div className="mt-2 flex flex-wrap gap-2">
+        {canUnassign && (
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => act(() => unassignOrder(orderId), `#${courier} liberado; o despacho procura outro entregador.`)}
+            data-testid="desatribuir"
+            className="rounded-md border border-target/50 px-2.5 py-1 text-xs text-target hover:bg-target/10 disabled:opacity-50"
+          >
+            Desatribuir o #{courier}
+          </button>
+        )}
+        {canAssign && (
+          <button
+            type="button"
+            disabled={busy}
+            onClick={loadCandidates}
+            data-testid="atribuir"
+            className="rounded-md border border-white/15 px-2.5 py-1 text-xs text-zinc-200 hover:bg-white/5 disabled:opacity-50"
+          >
+            {candidates ? "Atualizar candidatos" : "Atribuir na mão"}
+          </button>
+        )}
+      </div>
+      {canAssign && candidates && (
+        candidates.length === 0 ? (
+          <p className="mt-2 text-[11px] text-zinc-500">Nenhum entregador livre com sinal até 6 km da loja.</p>
+        ) : (
+          <ol className="mt-2 grid grid-cols-[1fr_auto_auto_auto] items-center gap-x-3 gap-y-1 text-xs" data-testid="candidatos-manuais">
+            {candidates.map((c) => (
+              <li key={c.courier_id} className="contents text-zinc-300">
+                <span>#{c.courier_id}</span>
+                <span className="text-right tabular-nums">{formatDuration(c.eta_seconds)}</span>
+                <span className="text-right tabular-nums text-zinc-500">{formatMeters(c.distance_m)}</span>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => act(() => assignOrder(orderId, c.courier_id), `Pedido entregue ao #${c.courier_id}.`)}
+                  className="rounded border border-white/15 px-1.5 py-0.5 text-[11px] text-route hover:bg-white/5 disabled:opacity-50"
+                >
+                  Atribuir
+                </button>
+              </li>
+            ))}
+          </ol>
+        )
+      )}
+      {canFault && (
+        <div className="mt-3">
+          <p className="mb-1.5 text-[11px] text-zinc-500">Simular falha do entregador #{courier} (só os da simulação obedecem):</p>
+          <CourierFaults courierId={courier} />
+        </div>
+      )}
+      {message && (
+        <p className={`mt-2 text-[11px] ${message.error ? "text-target" : "text-zinc-400"}`} data-testid="operacao-resultado">
+          {message.text}
+        </p>
+      )}
+    </section>
+  );
+}
+
+function OfferCard({ offer, index, current }: { offer: Offer; index: number; current: number | undefined }) {
   const { candidates } = offer;
   const fastest = candidates[0];
   const nearest = candidates.reduce<(typeof candidates)[number] | undefined>(
@@ -147,6 +268,9 @@ function OfferCard({ offer, index }: { offer: Offer; index: number }) {
         <span className={offer.status === "aceita" ? "text-origin" : offer.status === "pendente" ? "text-zinc-300" : "text-target"}>
           {OUTCOMES[offer.status]}
         </span>
+        {offer.status === "aceita" && current !== offer.courier_id && (
+          <span className="text-zinc-500"> · depois liberado pela central</span>
+        )}
       </p>
       {candidates.length === 0 ? (
         <p className="mt-1.5 text-[11px] text-zinc-500" data-testid="sem-candidatos">
@@ -347,6 +471,8 @@ export default function OrderAnalysis({ orderId, order, courierAt, map, ready, o
       </header>
 
       <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-4 py-3">
+        <Operation orderId={orderId} order={order} status={status} />
+
         <section data-testid="analise-rotas">
           <Heading>Rota escolhida vs alternativas</Heading>
           <p className="mt-1 text-[11px] text-zinc-500">Trecho atual: {STAGE_TITLES[stage]}</p>
@@ -373,8 +499,17 @@ export default function OrderAnalysis({ orderId, order, courierAt, map, ready, o
           ) : offers.length === 0 ? (
             <p className="mt-2 text-xs text-zinc-500">Nenhuma oferta enviada ainda.</p>
           ) : (
-            offers.map((offer, i) => <OfferCard key={offer.id} offer={offer} index={i + 1} />)
+            offers.map((offer, i) => (
+              <OfferCard key={offer.id} offer={offer} index={i + 1} current={order?.courier_id ?? detail?.courier?.id} />
+            ))
           )}
+          {order?.courier_id !== undefined &&
+            dispatch &&
+            !offers.some((o) => o.status === "aceita" && o.courier_id === order.courier_id) && (
+              <p className="mt-2 text-[11px] text-zinc-400" data-testid="atribuido-pela-central">
+                O #{order.courier_id} foi atribuído pela central, sem oferta.
+              </p>
+            )}
         </section>
 
         <section data-testid="analise-jornada">
