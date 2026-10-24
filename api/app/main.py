@@ -14,6 +14,7 @@ from app.config import settings
 from app.db import loads, many, one, run, transaction
 from app.dispatch import free_nearby, ranking
 from app.engine import Engine
+from app.history import legs
 from app.seed import seed_if_empty
 
 log = logging.getLogger("gdrive.api")
@@ -79,6 +80,10 @@ class OnlineIn(BaseModel):
     human: bool | None = None
 
 
+class ManualIn(BaseModel):
+    manual: bool
+
+
 class SimIn(BaseModel):
     rain: bool | None = None
     rush: float | None = Field(default=None, ge=1, le=10)
@@ -93,10 +98,9 @@ async def healthz():
     return {"status": "ok"}
 
 
-@app.post("/api/orders", status_code=201)
-async def create_order(body: OrderIn, request: Request):
+async def place_order(request: Request, store_id: int, address_id: int):
     async with transaction() as conn:
-        store, customer = await orders.endpoints(conn, body.store_id, body.address_id)
+        store, customer = await orders.endpoints(conn, store_id, address_id)
     try:
         travel = await request.app.state.engine.route_seconds(
             {"lat": store["lat"], "lon": store["lon"]}, {"lat": customer["lat"], "lon": customer["lon"]}
@@ -107,6 +111,11 @@ async def create_order(body: OrderIn, request: Request):
         order_id = await orders.create(conn, store, customer, travel)
         row = await one(conn, "SELECT id, status, promised_at FROM orders WHERE id = :id", id=order_id)
     return dict(row)
+
+
+@app.post("/api/orders", status_code=201)
+async def create_order(body: OrderIn, request: Request):
+    return await place_order(request, body.store_id, body.address_id)
 
 
 @app.get("/api/orders")
@@ -141,7 +150,12 @@ async def get_order(order_id: int):
         "id": ctx["id"],
         "status": ctx["status"],
         "version": ctx["version"],
-        "store": {"id": ctx["store_id"], "name": ctx["store_name"], **orders.store_point(ctx)},
+        "store": {
+            "id": ctx["store_id"],
+            "name": ctx["store_name"],
+            "manual": ctx["store_manual"],
+            **orders.store_point(ctx),
+        },
         "customer": orders.customer_point(ctx),
         "courier": courier,
         "prep_minutes": ctx["prep_minutes"],
@@ -246,16 +260,82 @@ async def store_ready(store_id: int, order_id: int):
 
 
 @app.get("/api/stores")
-async def list_stores(limit: int = 2000, offset: int = 0):
+async def list_stores(q: str | None = None, limit: int = 2000, offset: int = 0):
     async with transaction() as conn:
         rows = await many(
             conn,
-            "SELECT s.id, s.name, a.lat, a.lon FROM stores s JOIN addresses a ON a.id = s.address_id "
+            "SELECT s.id, s.name, s.manual, a.lat, a.lon FROM stores s JOIN addresses a ON a.id = s.address_id "
+            "WHERE CAST(:q AS text) IS NULL OR lower(s.name) LIKE '%' || lower(:q) || '%' "
             "ORDER BY s.id LIMIT :limit OFFSET :offset",
+            q=q.strip() if q and q.strip() else None,
             limit=min(limit, 5000),
             offset=offset,
         )
     return [dict(row) for row in rows]
+
+
+async def store_or_404(conn, store_id: int):
+    store = await one(
+        conn,
+        "SELECT s.id, s.name, s.manual, s.default_prep_minutes, a.lat, a.lon FROM stores s "
+        "JOIN addresses a ON a.id = s.address_id WHERE s.id = :id",
+        id=store_id,
+    )
+    if store is None:
+        raise orders.NotFound("loja não existe")
+    return store
+
+
+@app.get("/api/stores/{store_id}")
+async def get_store(store_id: int):
+    async with transaction() as conn:
+        return dict(await store_or_404(conn, store_id))
+
+
+@app.put("/api/stores/{store_id}/manual")
+async def set_store_manual(store_id: int, body: ManualIn):
+    async with transaction() as conn:
+        await store_or_404(conn, store_id)
+        await run(conn, "UPDATE stores SET manual = :manual WHERE id = :id", id=store_id, manual=body.manual)
+        return dict(await store_or_404(conn, store_id))
+
+
+@app.get("/api/stores/{store_id}/orders")
+async def store_orders(store_id: int, recent: int = 15):
+    async with transaction() as conn:
+        await store_or_404(conn, store_id)
+        rows = await many(
+            conn,
+            "(SELECT o.id, o.status, o.created_at, o.updated_at, o.prep_minutes, o.ready_at, o.promised_at, "
+            "o.courier_id, c.name AS courier_name, ca.lat AS customer_lat, ca.lon AS customer_lon "
+            "FROM orders o LEFT JOIN couriers c ON c.id = o.courier_id JOIN addresses ca ON ca.id = o.address_id "
+            "WHERE o.store_id = :id AND o.status NOT IN ('entregue', 'recusado', 'cancelado')) "
+            "UNION ALL (SELECT o.id, o.status, o.created_at, o.updated_at, o.prep_minutes, o.ready_at, "
+            "o.promised_at, o.courier_id, c.name, ca.lat, ca.lon FROM orders o "
+            "LEFT JOIN couriers c ON c.id = o.courier_id JOIN addresses ca ON ca.id = o.address_id "
+            "WHERE o.store_id = :id AND o.status IN ('entregue', 'recusado', 'cancelado') "
+            "ORDER BY o.updated_at DESC LIMIT :recent) ORDER BY id DESC",
+            id=store_id,
+            recent=min(recent, 100),
+        )
+    return [dict(row) for row in rows]
+
+
+@app.post("/api/stores/{store_id}/test-order", status_code=201)
+async def store_test_order(store_id: int, request: Request):
+    async with transaction() as conn:
+        await store_or_404(conn, store_id)
+        customer = await one(
+            conn,
+            "SELECT c.id FROM addresses c, stores s JOIN addresses sa ON sa.id = s.address_id "
+            "WHERE s.id = :id AND c.kind = 'customer' "
+            "AND ST_DWithin(c.geom::geography, sa.geom::geography, 4000) "
+            "AND NOT ST_DWithin(c.geom::geography, sa.geom::geography, 300) ORDER BY random() LIMIT 1",
+            id=store_id,
+        )
+    if customer is None:
+        return JSONResponse(status_code=422, content={"error": "nenhum cliente entre 300 m e 4 km da loja"})
+    return await place_order(request, store_id, customer["id"])
 
 
 @app.get("/api/couriers")
@@ -275,6 +355,61 @@ async def list_couriers(
             offset=offset,
         )
     return [dict(row) for row in rows]
+
+
+@app.get("/api/couriers/{courier_id}")
+async def get_courier(courier_id: int):
+    async with transaction() as conn:
+        courier = await one(
+            conn,
+            "SELECT c.id, c.name, c.status, c.human, a.lat, a.lon FROM couriers c "
+            "JOIN addresses a ON a.id = c.home_address_id WHERE c.id = :id",
+            id=courier_id,
+        )
+        if courier is None:
+            raise orders.NotFound("entregador não existe")
+        offer = await one(
+            conn,
+            "SELECT f.id, f.order_id, f.eta_seconds, f.expires_at, s.name AS store_name, sa.lat AS store_lat, "
+            "sa.lon AS store_lon, ca.lat AS customer_lat, ca.lon AS customer_lon FROM offers f "
+            "JOIN orders o ON o.id = f.order_id JOIN stores s ON s.id = o.store_id "
+            "JOIN addresses sa ON sa.id = s.address_id JOIN addresses ca ON ca.id = o.address_id "
+            "WHERE f.courier_id = :id AND f.status = 'pendente' AND f.expires_at > now()",
+            id=courier_id,
+        )
+        order = await one(
+            conn,
+            "SELECT o.id FROM orders o WHERE o.courier_id = :id AND o.status = ANY(:active)",
+            id=courier_id,
+            active=list(orders.ACTIVE),
+        )
+        active = await orders.context(conn, order["id"]) if order else None
+    return {
+        "id": courier["id"],
+        "name": courier["name"],
+        "status": courier["status"],
+        "human": courier["human"],
+        "home": {"lat": courier["lat"], "lon": courier["lon"]},
+        "offer": {
+            "id": offer["id"],
+            "order_id": offer["order_id"],
+            "eta_seconds": offer["eta_seconds"],
+            "expires_at": offer["expires_at"],
+            "store": {"name": offer["store_name"], "lat": offer["store_lat"], "lon": offer["store_lon"]},
+            "customer": {"lat": offer["customer_lat"], "lon": offer["customer_lon"]},
+        }
+        if offer
+        else None,
+        "order": {
+            "id": active["id"],
+            "status": active["status"],
+            "ready_at": active["ready_at"],
+            "store": {"id": active["store_id"], "name": active["store_name"], **orders.store_point(active)},
+            "customer": orders.customer_point(active),
+        }
+        if active
+        else None,
+    }
 
 
 @app.post("/api/couriers/{courier_id}/online")
@@ -370,6 +505,64 @@ async def sim_command(
     if receivers == 0:
         return JSONResponse(status_code=503, content={"error": "simulador fora do ar"})
     return {"action": action, "courier_id": courier_id, "seconds": seconds}
+
+
+@app.get("/api/history")
+async def history(limit: int = 50, offset: int = 0):
+    async with transaction() as conn:
+        total = await one(conn, "SELECT count(*) AS n FROM orders WHERE status = 'entregue'")
+        rows = await many(
+            conn,
+            "SELECT o.id, s.name AS store_name, o.courier_id, o.created_at, o.delivered_at, o.promised_at, "
+            "extract(epoch FROM o.delivered_at - o.created_at) AS seconds, o.delivered_at > o.promised_at AS late, "
+            "(SELECT sum(t.meters) FROM tracks t WHERE t.order_id = o.id) AS meters, "
+            "(SELECT count(*) FROM alerts a WHERE a.order_id = o.id) AS alerts "
+            "FROM orders o JOIN stores s ON s.id = o.store_id WHERE o.status = 'entregue' "
+            "ORDER BY o.delivered_at DESC NULLS LAST, o.id DESC LIMIT :limit OFFSET :offset",
+            limit=min(limit, 200),
+            offset=offset,
+        )
+    items = [
+        {
+            **dict(row),
+            "seconds": float(row["seconds"]) if row["seconds"] is not None else None,
+            "meters": round(row["meters"]) if row["meters"] is not None else None,
+        }
+        for row in rows
+    ]
+    return {"total": total["n"], "items": items}
+
+
+@app.get("/api/orders/{order_id}/track")
+async def order_track(order_id: int):
+    async with transaction() as conn:
+        ctx = await orders.context(conn, order_id)
+        found = await legs(conn, order_id)
+        if not found:
+            raise orders.NotFound("trajeto ainda não gravado")
+        timeline = await many(
+            conn,
+            "SELECT type, status, actor, at FROM order_events WHERE order_id = :id ORDER BY id",
+            id=order_id,
+        )
+        alerts = await many(
+            conn,
+            "SELECT kind, courier_id, detail, opened_at, closed_at FROM alerts WHERE order_id = :id ORDER BY id",
+            id=order_id,
+        )
+    return {
+        "order_id": order_id,
+        "status": ctx["status"],
+        "store": {"id": ctx["store_id"], "name": ctx["store_name"], **orders.store_point(ctx)},
+        "customer": orders.customer_point(ctx),
+        "courier_id": ctx["courier_id"],
+        "created_at": ctx["created_at"],
+        "promised_at": ctx["promised_at"],
+        "delivered_at": ctx["delivered_at"],
+        "legs": found,
+        "timeline": [dict(row) for row in timeline],
+        "alerts": [{**dict(row), "detail": loads(row["detail"])} for row in alerts],
+    }
 
 
 @app.get("/api/stats")

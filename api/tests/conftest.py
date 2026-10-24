@@ -97,7 +97,7 @@ async def clean():
     async with transaction() as conn:
         await conn.execute(
             text(
-                "TRUNCATE alerts, jobs, outbox, offers, order_events, orders, couriers, stores, addresses "
+                "TRUNCATE tracks, alerts, jobs, outbox, offers, order_events, orders, couriers, stores, addresses "
                 "RESTART IDENTITY CASCADE"
             )
         )

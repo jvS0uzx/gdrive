@@ -10,6 +10,7 @@ from app import orders
 from app.config import settings
 from app.dispatch import dispatch
 from app.engine import Engine
+from app.history import save_track
 from app.jobs import run_due
 from app.monitor import check_late, watch_signal
 from app.outbox import relay_once
@@ -27,6 +28,7 @@ def handlers(redis: Redis, engine: Engine) -> dict:
         "offer_timeout": lambda conn, offer_id: orders.expire_offer(conn, offer_id),
         "store_timeout": lambda conn, order_id: orders.store_timeout(conn, order_id),
         "late_check": check_late,
+        "save_track": lambda conn, order_id: save_track(conn, redis, order_id),
     }
 
 

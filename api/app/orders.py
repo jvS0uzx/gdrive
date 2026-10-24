@@ -58,7 +58,7 @@ async def transition(conn: AsyncConnection, order_id: int, expected: str | tuple
 async def context(conn: AsyncConnection, order_id: int):
     row = await one(
         conn,
-        "SELECT o.*, s.name AS store_name, sa.lat AS store_lat, sa.lon AS store_lon, "
+        "SELECT o.*, s.name AS store_name, s.manual AS store_manual, sa.lat AS store_lat, sa.lon AS store_lon, "
         "ca.lat AS customer_lat, ca.lon AS customer_lon "
         "FROM orders o JOIN stores s ON s.id = o.store_id JOIN addresses sa ON sa.id = s.address_id "
         "JOIN addresses ca ON ca.id = o.address_id WHERE o.id = :id",
@@ -80,7 +80,7 @@ def customer_point(ctx) -> dict:
 async def endpoints(conn: AsyncConnection, store_id: int, address_id: int):
     store = await one(
         conn,
-        "SELECT s.id, s.name, s.default_prep_minutes, a.lat, a.lon FROM stores s "
+        "SELECT s.id, s.name, s.default_prep_minutes, s.manual, a.lat, a.lon FROM stores s "
         "JOIN addresses a ON a.id = s.address_id WHERE s.id = :id",
         id=store_id,
     )
@@ -115,6 +115,7 @@ async def create(conn: AsyncConnection, store, customer, travel_seconds: float) 
         customer={"lat": customer["lat"], "lon": customer["lon"]},
         store_name=store["name"],
         store_id=store["id"],
+        manual=store["manual"],
     )
     await schedule(conn, "store_timeout", delay=settings.store_timeout_seconds, order_id=order["id"])
     await schedule(conn, "late_check", delay=promise, order_id=order["id"])
@@ -292,6 +293,7 @@ async def deliver(conn: AsyncConnection, order_id: int, courier_id: int) -> None
     await run(conn, "UPDATE orders SET delivered_at = now() WHERE id = :id", id=order_id)
     await set_courier_status(conn, courier_id, ("ocupado",), "livre")
     await emit(conn, order_id, "pedido_entregue", "entregador")
+    await schedule(conn, "save_track", order_id=order_id)
 
 
 async def cancel(conn: AsyncConnection, order_id: int) -> None:

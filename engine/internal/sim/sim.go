@@ -393,9 +393,10 @@ type orderDetail struct {
 	ID     int64  `json:"id"`
 	Status string `json:"status"`
 	Store  struct {
-		ID  int64   `json:"id"`
-		Lat float64 `json:"lat"`
-		Lon float64 `json:"lon"`
+		ID     int64   `json:"id"`
+		Lat    float64 `json:"lat"`
+		Lon    float64 `json:"lon"`
+		Manual bool    `json:"manual"`
 	} `json:"store"`
 	Customer live.Point `json:"customer"`
 	Courier  *struct {
@@ -440,10 +441,12 @@ func (s *Sim) resumeOrder(ctx context.Context, d orderDetail) bool {
 	store := live.Point{Lat: d.Store.Lat, Lon: d.Store.Lon}
 	switch d.Status {
 	case "aguardando_loja":
-		s.storeAccepts(ctx, d.ID, d.Store.ID)
+		if !d.Store.Manual {
+			s.storeAccepts(ctx, d.ID, d.Store.ID)
+		}
 		return true
 	case "em_preparo", "a_caminho_da_loja", "na_loja":
-		if !o.ready {
+		if !o.ready && !d.Store.Manual {
 			s.later(ctx, s.between(5*time.Second, 20*time.Second), func() {
 				s.post(ctx, fmt.Sprintf("/api/stores/%d/orders/%d/ready", d.Store.ID, d.ID), nil)
 			})
@@ -562,6 +565,7 @@ func (s *Sim) follow(ctx context.Context, last string) error {
 type event struct {
 	live.Event
 	StoreID int64 `json:"store_id"`
+	Manual  bool  `json:"manual"`
 }
 
 func (s *Sim) later(ctx context.Context, d time.Duration, f func()) {
@@ -611,7 +615,9 @@ func (s *Sim) handle(ctx context.Context, e event) {
 		s.mu.Lock()
 		o.store = e.StoreID
 		s.mu.Unlock()
-		s.storeAccepts(ctx, e.Order, e.StoreID)
+		if !e.Manual {
+			s.storeAccepts(ctx, e.Order, e.StoreID)
+		}
 	case "oferta_enviada":
 		if c, ours := s.couriers[e.Courier]; !ours || c.silent() {
 			return
