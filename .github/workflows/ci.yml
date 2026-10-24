@@ -52,7 +52,7 @@ jobs:
           POSTGRES_PASSWORD: gdrive
           POSTGRES_DB: gdrive_test
         options: >-
-          --health-cmd "pg_isready -U postgres"
+          --health-cmd "pg_isready -h 127.0.0.1 -U postgres -d gdrive_test"
           --health-interval 2s
           --health-timeout 3s
           --health-retries 30

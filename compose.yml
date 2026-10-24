@@ -14,7 +14,7 @@ services:
     volumes:
       - db:/var/lib/postgresql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d gdrive"]
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres -d gdrive"]
       interval: 2s
       retries: 30
     restart: unless-stopped
