@@ -21,6 +21,11 @@ func setup(t *testing.T, opts ...func(*Hub)) (*miniredis.Miniredis, *redis.Clien
 	mr := miniredis.RunT(t)
 	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
 	t.Cleanup(func() { rdb.Close() })
+	return mr, rdb, serve(t, rdb, opts...)
+}
+
+func serve(t *testing.T, rdb *redis.Client, opts ...func(*Hub)) *httptest.Server {
+	t.Helper()
 	hub := New(rdb, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	hub.SetPlanner(func(from, to Point) (Plan, bool) {
 		return Plan{Path: [][2]float64{{from.Lon, from.Lat}, {to.Lon, to.Lat}}, Seconds: 60, Meters: Distance(from, to)}, true
@@ -39,7 +44,7 @@ func setup(t *testing.T, opts ...func(*Hub)) (*miniredis.Miniredis, *redis.Clien
 	ts := httptest.NewServer(mux)
 	t.Cleanup(ts.Close)
 	time.Sleep(50 * time.Millisecond)
-	return mr, rdb, ts
+	return ts
 }
 
 func dial(t *testing.T, ts *httptest.Server, path string) *websocket.Conn {
@@ -412,4 +417,26 @@ func TestChuvaLigadaNoRedisChegaAoRetrato(t *testing.T) {
 	if !strings.Contains(string(hub.snapshot()), `"rain":true`) {
 		t.Fatal("retrato sem a chuva")
 	}
+}
+
+// Duas instâncias no mesmo Redis, como no compose com --scale engine=N: o nginx põe o
+// entregador numa e quem assiste noutra, e a posição precisa atravessar pelo pub/sub.
+func TestDuasInstanciasDividemOTempoReal(t *testing.T) {
+	_, rdb, first := setup(t)
+	second := serve(t, rdb)
+	ctx := context.Background()
+	central := dial(t, second, "/ws/watch/central")
+	watcher := dial(t, second, "/ws/watch/order/21")
+	time.Sleep(50 * time.Millisecond)
+	rdb.HSet(ctx, TargetKey(7), "order_id", 21, "lat", -12.90, "lon", -38.40, "phase", "loja")
+	courier := dial(t, first, "/ws/courier?id=7")
+	send(t, courier, Point{-12.95, -38.45})
+	pos := readUntil(t, watcher, func(m map[string]any) bool { return m["type"] == "posicao" })
+	if pos["courier_id"].(float64) != 7 || pos["lat"].(float64) != -12.95 {
+		t.Fatalf("posição vinda da outra instância: %v", pos)
+	}
+	readUntil(t, central, func(m map[string]any) bool {
+		couriers, _ := m["couriers"].([]any)
+		return m["type"] == "snapshot" && len(couriers) == 1 && couriers[0].([]any)[0].(float64) == 7
+	})
 }

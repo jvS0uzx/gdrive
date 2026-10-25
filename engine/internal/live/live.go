@@ -186,8 +186,10 @@ func (h *Hub) followPositions(ctx context.Context) {
 		if err := json.Unmarshal([]byte(msg.Payload), &p); err != nil {
 			continue
 		}
+		now := time.Now()
+		positionFanout.Observe(now.Sub(time.UnixMilli(p.At)).Seconds())
 		h.mu.Lock()
-		h.couriers[p.Courier] = &courierState{pos: p, seen: time.Now()}
+		h.couriers[p.Courier] = &courierState{pos: p, seen: now}
 		h.mu.Unlock()
 		if p.Order != 0 {
 			data, _ := json.Marshal(map[string]any{"type": "posicao", "courier_id": p.Courier, "lat": p.Lat, "lon": p.Lon, "phase": p.Phase})
@@ -315,6 +317,7 @@ func (h *Hub) snapshot() []byte {
 		}
 	}
 	data, _ := json.Marshal(map[string]any{"type": "snapshot", "couriers": couriers, "orders": orders, "rain": h.Raining()})
+	snapshotCouriers.Set(float64(len(couriers)))
 	return data
 }
 
@@ -334,12 +337,16 @@ func (h *Hub) broadcastSnapshots(ctx context.Context) {
 		if n == 0 {
 			continue
 		}
+		began := time.Now()
 		data := h.snapshot()
+		snapshotBuild.Observe(time.Since(began).Seconds())
+		snapshotBytes.Set(float64(len(data)))
 		h.mu.RLock()
 		for ch := range h.central {
 			select {
 			case ch <- data:
 			default:
+				wsDropped.WithLabelValues("central").Inc()
 			}
 		}
 		h.mu.RUnlock()
@@ -353,6 +360,7 @@ func (h *Hub) toWatchers(order int64, data []byte) {
 		select {
 		case ch <- data:
 		default:
+			wsDropped.WithLabelValues("order").Inc()
 		}
 	}
 }
@@ -368,6 +376,9 @@ func (h *Hub) ServeCourier(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer conn.CloseNow()
+	connected := wsConnections.WithLabelValues("courier")
+	connected.Inc()
+	defer connected.Dec()
 	ctx := r.Context()
 	t := tracker{hub: h, id: id}
 	for {
@@ -379,9 +390,12 @@ func (h *Hub) ServeCourier(w http.ResponseWriter, r *http.Request) {
 		if json.Unmarshal(data, &p) != nil || math.IsNaN(p.Lat) || math.Abs(p.Lat) > 90 || math.Abs(p.Lon) > 180 {
 			continue
 		}
+		positionsReceived.Inc()
+		began := time.Now()
 		if err := t.update(ctx, p); err != nil {
 			h.log.Warn("posição não gravada", "courier", id, "err", err)
 		}
+		positionUpdate.Observe(time.Since(began).Seconds())
 	}
 }
 
@@ -585,6 +599,9 @@ func (h *Hub) ServeCentral(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer conn.CloseNow()
+	connected := wsConnections.WithLabelValues("central")
+	connected.Inc()
+	defer connected.Dec()
 	ch := make(chan []byte, 4)
 	h.mu.Lock()
 	h.central[ch] = struct{}{}
@@ -611,6 +628,9 @@ func (h *Hub) ServeOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer conn.CloseNow()
+	connected := wsConnections.WithLabelValues("order")
+	connected.Inc()
+	defer connected.Dec()
 	ch := make(chan []byte, 16)
 	h.mu.Lock()
 	if h.watchers[id] == nil {

@@ -10,6 +10,9 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
+
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	"github.com/jvS0uzx/gdrive/engine/internal/city"
 	"github.com/jvS0uzx/gdrive/engine/internal/live"
@@ -152,6 +155,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
+	mux.Handle("GET /metrics", promhttp.Handler())
 	mux.HandleFunc("GET /city", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Write(s.meta)
@@ -236,7 +240,9 @@ func (s *Server) route(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	factor, rain := s.weather(req.Rain)
+	began := time.Now()
 	p, ok := s.graph.Shortest(from, to, factor)
+	observeRoute("route", began)
 	if !ok {
 		s.log.Error("rota impossível numa malha que deveria ser fortemente conexa", "from", from, "to", to)
 		writeError(w, http.StatusUnprocessableEntity, "não existe rota entre os dois pontos")
@@ -298,13 +304,18 @@ func (s *Server) alternatives(w http.ResponseWriter, r *http.Request) {
 	}
 	factor, _ := s.weather(req.Rain)
 	out := map[string]*routeOption{}
+	var searching time.Duration
 	for name, mode := range map[string]route.Mode{"fastest": route.Fastest, "shortest": route.Shortest, "no_expressway": route.NoExpressway} {
-		if p, ok := s.graph.ShortestBy(from, to, factor, mode); ok {
+		began := time.Now()
+		p, ok := s.graph.ShortestBy(from, to, factor, mode)
+		searching += time.Since(began)
+		if ok {
 			out[name] = s.option(p)
 		} else {
 			out[name] = nil
 		}
 	}
+	routeSeconds.WithLabelValues("alternatives").Observe(searching.Seconds())
 	writeJSON(w, http.StatusOK, out)
 }
 
@@ -317,7 +328,9 @@ func (s *Server) Plan(from, to live.Point) (live.Plan, bool) {
 		return live.Plan{}, false
 	}
 	factor, _ := s.weather(false)
+	began := time.Now()
 	p, ok := s.graph.Shortest(a, b, factor)
+	observeRoute("plan", began)
 	if !ok {
 		return live.Plan{}, false
 	}
@@ -373,7 +386,9 @@ func (s *Server) eta(w http.ResponseWriter, r *http.Request) {
 		nodes = append(nodes, node)
 	}
 	factor, _ := s.weather(req.Rain)
+	began := time.Now()
 	times := s.graph.TimesTo(target, nodes, factor)
+	observeRoute("eta", began)
 	out := make([]eta, 0, len(ids))
 	for i, id := range ids {
 		if !math.IsInf(times[i], 1) {

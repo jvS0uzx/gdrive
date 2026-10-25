@@ -344,3 +344,37 @@ func TestBlocosVetoriaisDaMalha(t *testing.T) {
 		}
 	}
 }
+
+func TestMetricasDoRoteador(t *testing.T) {
+	ts, _ := newTestServer(t)
+	body := `{"from":{"lat":-12.97,"lon":-38.50},"to":{"lat":-12.96,"lon":-38.49}}`
+	resp, err := http.Post(ts.URL+"/route", "application/json", strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	resp, err = http.Get(ts.URL + "/metrics")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	data, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status %d", resp.StatusCode)
+	}
+	for _, want := range []string{"process_cpu_seconds_total", "go_goroutines"} {
+		if !strings.Contains(string(data), want) {
+			t.Fatalf("/metrics sem %s", want)
+		}
+	}
+	const counted = `gdrive_route_seconds_count{kind="route"} `
+	for _, line := range strings.Split(string(data), "\n") {
+		if n, ok := strings.CutPrefix(line, counted); ok {
+			if v, err := strconv.ParseFloat(n, 64); err != nil || v < 1 {
+				t.Fatalf("rota não contada: %q", line)
+			}
+			return
+		}
+	}
+	t.Fatal("/metrics sem gdrive_route_seconds do tipo route")
+}
