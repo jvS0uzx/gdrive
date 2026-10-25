@@ -19,27 +19,48 @@ FREE = (
 )
 
 
+# O índice geográfico tem todo mundo, livre ou não, e quem está livre só o Postgres sabe. Com
+# muitos entregadores, os 50 mais próximos podem estar todos ocupados: a busca abre em lotes
+# até achar WANTED livres ou esgotar o raio.
+SEARCH_BATCHES = (50, 200, 800, 3200)
+WANTED = 50
+
+
 async def free_nearby(
     conn: AsyncConnection, redis: Redis, lat: float, lon: float, radius: int, order_id: int, lock: bool
 ) -> tuple[dict[int, float], list[int]]:
-    found = await redis.geosearch(
-        GEO_KEY, longitude=lon, latitude=lat, radius=radius, unit="m", sort="ASC", count=50, withdist=True
-    )
-    straight = {int(member): float(distance) for member, distance in found}
-    if not straight:
-        return straight, []
-    pipe = redis.pipeline(transaction=False)
-    for courier in straight:
-        pipe.hget(f"courier:{courier}", "ts")
-    stamps = await pipe.execute()
+    straight: dict[int, float] = {}
+    free: set[int] = set()
     oldest = time.time() * 1000 - settings.signal_lost_seconds * 1000
-    fresh = [c for c, ts in zip(straight, stamps, strict=True) if ts is not None and float(ts) >= oldest]
-    if not fresh:
-        return straight, []
-    rows = await many(
-        conn, FREE + (" FOR UPDATE OF c SKIP LOCKED" if lock else ""), ids=fresh, order=order_id
-    )
-    return straight, [row["id"] for row in rows]
+    for count in SEARCH_BATCHES:
+        found = await redis.geosearch(
+            GEO_KEY,
+            longitude=lon,
+            latitude=lat,
+            radius=radius,
+            unit="m",
+            sort="ASC",
+            count=count,
+            withdist=True,
+        )
+        batch = [(int(member), float(distance)) for member, distance in found if int(member) not in straight]
+        straight.update(batch)
+        if batch:
+            pipe = redis.pipeline(transaction=False)
+            for courier, _ in batch:
+                pipe.hget(f"courier:{courier}", "ts")
+            stamps = await pipe.execute()
+            fresh = [
+                c for (c, _), ts in zip(batch, stamps, strict=True) if ts is not None and float(ts) >= oldest
+            ]
+            if fresh:
+                rows = await many(
+                    conn, FREE + (" FOR UPDATE OF c SKIP LOCKED" if lock else ""), ids=fresh, order=order_id
+                )
+                free.update(row["id"] for row in rows)
+        if len(free) >= WANTED or len(found) < count:
+            break
+    return straight, sorted(free, key=lambda c: (straight[c], c))[:WANTED]
 
 
 def ranking(etas: list[tuple[int, float]], straight: dict[int, float]) -> list[dict]:

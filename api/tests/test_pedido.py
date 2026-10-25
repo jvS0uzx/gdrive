@@ -1,4 +1,5 @@
 import asyncio
+import time
 
 from app.db import one, run, transaction
 from tests.conftest import online, outbox_types
@@ -249,3 +250,25 @@ async def test_despacho_guarda_os_candidatos_e_escolhe_o_mais_rapido(client, cit
     assert offers[0]["courier_id"] == ranked[0]["courier_id"]
     assert [c["courier_id"] for c in offers[1]["candidates"]] == [2]
     assert (await client.get("/api/orders/999/dispatch")).status_code == 404
+
+
+async def test_despacho_acha_o_livre_atras_de_muitos_ocupados(client, city, redis, jobs, engine):
+    await online(redis, client, 2)
+    async with transaction() as conn:
+        store = await one(
+            conn,
+            "SELECT a.lat, a.lon FROM stores s JOIN addresses a ON a.id = s.address_id WHERE s.id = :id",
+            id=city["stores"]["Acarajé da Dinha"],
+        )
+    # Sessenta entregadores colados na loja que o Postgres não dá como livres: antes, só os 50
+    # mais próximos eram consultados, e o livre a algumas quadras ficava invisível.
+    now = int(time.time() * 1000)
+    for i in range(60):
+        await redis.geoadd("geo:couriers", (store["lon"], store["lat"], str(10_000 + i)))
+        await redis.hset(
+            f"courier:{10_000 + i}", mapping={"lat": store["lat"], "lon": store["lon"], "ts": now}
+        )
+    order = await create(client, city)
+    await client.post(f"/api/stores/1/orders/{order}/accept", json={"prep_minutes": 5})
+    await jobs()
+    assert (await offer_of(order))["courier_id"] == 2
