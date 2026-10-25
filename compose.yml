@@ -32,6 +32,9 @@ services:
     build:
       context: .
       dockerfile: engine/Dockerfile
+    # Réplicas no arquivo, e não só no `--scale`: qualquer `up` ou `run` sem a flag voltaria a uma.
+    deploy:
+      replicas: ${ENGINE_REPLICAS:-1}
     environment:
       REDIS_URL: redis://redis:6379/0
       STOPPED_AFTER: 30s
@@ -88,7 +91,8 @@ services:
     entrypoint: ["/sim"]
     environment:
       API_URL: http://api:8000
-      ENGINE_URL: http://engine:8080
+      # Pelo nginx, como o celular: com --scale engine=N os entregadores se dividem entre as instâncias.
+      ENGINE_URL: http://web
       REDIS_URL: redis://redis:6379/0
       COURIERS: "${SIM_COURIERS:-60}"
       ORDER_EVERY: "${SIM_ORDER_EVERY:-4s}"
@@ -102,7 +106,32 @@ services:
         condition: service_healthy
       worker:
         condition: service_started
+      web:
+        condition: service_started
     restart: unless-stopped
+
+  # Carga da fase 3: `docker compose --profile load up load`. Entra pelo nginx, como o simulador.
+  load:
+    build:
+      context: .
+      dockerfile: engine/Dockerfile
+    profiles: ["load"]
+    entrypoint: ["/load"]
+    environment:
+      TARGET: ws://web
+      REDIS_URL: redis://redis:6379/0
+      COURIERS: "${LOAD_COURIERS:-5000}"
+      BUSY_RATIO: "${LOAD_BUSY_RATIO:-0.4}"
+      RAMP_STEP: "${LOAD_RAMP_STEP:-1000}"
+      RAMP_EVERY: "${LOAD_RAMP_EVERY:-10s}"
+      DURATION: "${LOAD_DURATION:-0}"
+      SPEED: "${SIM_SPEED:-8}"
+    healthcheck:
+      disable: true
+    depends_on:
+      web:
+        condition: service_started
+    restart: "no"
 
   web:
     build:
@@ -117,5 +146,51 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  # Observabilidade só sobe com `--profile obs`: o `docker compose up` da demo continua igual.
+  prometheus:
+    image: prom/prometheus:v3.15.1
+    profiles: ["obs"]
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=2d
+    volumes:
+      - ./deploy/prometheus:/etc/prometheus:ro
+      - prometheus:/prometheus
+    ports:
+      - "127.0.0.1:9090:9090"
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:13.2.4
+    profiles: ["obs"]
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_PLUGINS_PREINSTALL_DISABLED: "true"
+    volumes:
+      - ./deploy/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./deploy/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./deploy/grafana/dashboards:/etc/grafana/dashboards:ro
+    ports:
+      - "127.0.0.1:3001:3000"
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
+  redis-exporter:
+    image: oliver006/redis_exporter:v1.95.0
+    profiles: ["obs"]
+    environment:
+      REDIS_ADDR: redis://redis:6379
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
 volumes:
   db:
+  prometheus:

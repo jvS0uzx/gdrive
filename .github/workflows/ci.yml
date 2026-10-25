@@ -112,10 +112,12 @@ jobs:
   e2e:
     runs-on: ubuntu-24.04
     needs: [engine, api, web]
+    env:
+      ENGINE_REPLICAS: "2"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: sobe a pilha com o simulador acelerado
+      - name: sobe a pilha com o simulador acelerado e duas instâncias do engine
         env:
           SIM_SPEED: "30"
           SIM_ORDER_EVERY: 2s
@@ -140,6 +142,23 @@ jobs:
           done
           curl -s localhost:8085/api/stats
           exit 1
+
+      - name: as duas instâncias do engine recebem entregadores
+        run: |
+          ids=$(docker compose ps -q engine)
+          [ "$(echo "$ids" | wc -l)" -eq 2 ] || { docker compose ps; exit 1; }
+          for id in $ids; do
+            ip=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$id")
+            n=$(docker run --rm --network gdrive_default curlimages/curl:8.11.1 -s "http://$ip:8080/metrics" \
+              | awk '/^gdrive_ws_connections\{kind="courier"\}/ {print $2 + 0}')
+            echo "engine $ip: ${n:-0} entregadores"
+            [ "${n:-0}" -gt 0 ] || exit 1
+          done
+
+      - name: fumaça do gerador de carga
+        run: |
+          docker compose --profile load run --rm --no-deps \
+            -e COURIERS=200 -e RAMP_STEP=200 -e DURATION=20s -e MAX_ERRORS=0 -e MIN_POSITIONS=1000 load
 
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
         with:

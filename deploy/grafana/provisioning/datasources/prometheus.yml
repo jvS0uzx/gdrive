@@ -1,0 +1,13 @@
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    uid: prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false
+    jsonData:
+      # Igual ao scrape_interval, para o rate_interval do Grafana nunca pegar menos de quatro coletas.
+      timeInterval: 5s

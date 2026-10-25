@@ -1,0 +1,49 @@
+global:
+  scrape_interval: 5s
+  scrape_timeout: 4s
+  evaluation_interval: 5s
+
+# Alvos pelo DNS do Docker: com `--scale engine=N` o nome do serviço resolve para os N
+# containers, e uma instância nova entra na coleta sem mexer neste arquivo.
+scrape_configs:
+  - job_name: engine
+    dns_sd_configs:
+      - names: [engine]
+        type: A
+        port: 8080
+        refresh_interval: 5s
+    # O IP sozinho já distingue a instância; a porta é a mesma em todas e só polui a legenda.
+    relabel_configs: &instance_ip
+      - source_labels: [__address__]
+        regex: '(.+):\d+'
+        target_label: instance
+
+  - job_name: api
+    dns_sd_configs:
+      - names: [api]
+        type: A
+        port: 8000
+        refresh_interval: 5s
+    relabel_configs: *instance_ip
+
+  - job_name: worker
+    dns_sd_configs:
+      - names: [worker]
+        type: A
+        port: 9100
+        refresh_interval: 5s
+    relabel_configs: *instance_ip
+
+  - job_name: load
+    dns_sd_configs:
+      - names: [load]
+        type: A
+        port: 9101
+        refresh_interval: 5s
+    relabel_configs: *instance_ip
+
+  - job_name: redis
+    static_configs:
+      - targets: [redis-exporter:9121]
+        labels:
+          instance: redis
