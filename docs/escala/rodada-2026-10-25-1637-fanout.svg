@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 440" font-family="IBM Plex Sans, sans-serif" font-size="12">
+<rect width="720" height="440" fill="#0A1B2A"/>
+<text x="72" y="28" fill="#EEF2F5" font-size="15" font-weight="600">Fan-out entre instâncias, p99</text>
+<line x1="72" x2="696" y1="384.0" y2="384.0" stroke="#1D364C"/>
+<text x="64" y="388.0" fill="#9FB3C3" text-anchor="end">0</text>
+<line x1="72" x2="696" y1="307.0" y2="307.0" stroke="#1D364C"/>
+<text x="64" y="311.0" fill="#9FB3C3" text-anchor="end">200</text>
+<line x1="72" x2="696" y1="230.0" y2="230.0" stroke="#1D364C"/>
+<text x="64" y="234.0" fill="#9FB3C3" text-anchor="end">400</text>
+<line x1="72" x2="696" y1="153.0" y2="153.0" stroke="#1D364C"/>
+<text x="64" y="157.0" fill="#9FB3C3" text-anchor="end">600</text>
+<line x1="72" x2="696" y1="76.0" y2="76.0" stroke="#1D364C"/>
+<text x="64" y="80.0" fill="#9FB3C3" text-anchor="end">800</text>
+<text x="220.6" y="404" fill="#9FB3C3" text-anchor="middle">5.000</text>
+<text x="369.1" y="404" fill="#9FB3C3" text-anchor="middle">10.000</text>
+<text x="666.3" y="404" fill="#9FB3C3" text-anchor="middle">20.000</text>
+<text x="384.0" y="428" fill="#9FB3C3" text-anchor="middle">entregadores conectados</text>
+<text x="16" y="230.0" fill="#9FB3C3" text-anchor="middle" transform="rotate(-90 16 230.0)">ms</text>
+<polyline points="220.6,373.0 369.1,372.8 666.3,140.6" fill="none" stroke="#00ADD8" stroke-width="2.5"/>
+<circle cx="220.6" cy="373.0" r="3.5" fill="#00ADD8"/>
+<circle cx="369.1" cy="372.8" r="3.5" fill="#00ADD8"/>
+<circle cx="666.3" cy="140.6" r="3.5" fill="#00ADD8"/>
+<rect x="72" y="47" width="14" height="3" fill="#00ADD8"/>
+<text x="92" y="52" fill="#EEF2F5">1 engine</text>
+<polyline points="220.6,373.0 369.1,372.9 666.3,355.8" fill="none" stroke="#E3C45C" stroke-width="2.5"/>
+<circle cx="220.6" cy="373.0" r="3.5" fill="#E3C45C"/>
+<circle cx="369.1" cy="372.9" r="3.5" fill="#E3C45C"/>
+<circle cx="666.3" cy="355.8" r="3.5" fill="#E3C45C"/>
+<rect x="172" y="47" width="14" height="3" fill="#E3C45C"/>
+<text x="192" y="52" fill="#EEF2F5">2 engines</text>
+<polyline points="220.6,373.1 369.1,372.9 666.3,360.0" fill="none" stroke="#4CC38A" stroke-width="2.5"/>
+<circle cx="220.6" cy="373.1" r="3.5" fill="#4CC38A"/>
+<circle cx="369.1" cy="372.9" r="3.5" fill="#4CC38A"/>
+<circle cx="666.3" cy="360.0" r="3.5" fill="#4CC38A"/>
+<rect x="272" y="47" width="14" height="3" fill="#4CC38A"/>
+<text x="292" y="52" fill="#EEF2F5">4 engines</text>
+</svg>

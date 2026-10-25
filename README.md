@@ -5,7 +5,7 @@
   </picture>
 </h1>
 
-![Fase 2: o painel da loja, o entregador pelo celular com piloto automático, os alertas na central com a desatribuição e o replay de uma entrega](docs/assets/fase-2.gif)
+![Fase 3: 20 mil entregadores sintéticos subindo no Grafana com 4 instâncias do engine, a central com a cidade cheia, a fila do pool do Redis antes e depois da gravação em lote e o resultado com 20 mil](docs/assets/fase-3.gif)
 
 Simulação de despacho de delivery sobre o mapa real de Salvador. Os entregadores andam pelas
 ruas de verdade seguindo rotas de um roteador próprio, o despacho oferece cada pedido ao
@@ -14,7 +14,8 @@ vivo.
 
 O objetivo é medir, com número, até onde o sistema escala na horizontal.
 
-> **Estado:** fases 0 (mapa e roteador), 1 (núcleo do delivery) e 2 (operação) concluídas.
+> **Estado:** fases 0 (mapa e roteador), 1 (núcleo do delivery), 2 (operação) e 3 (escala)
+> concluídas.
 >
 > **Navegador:** testado apenas no Chromium, no Linux. Google Chrome e outros navegadores não
 > são testados.
@@ -38,7 +39,103 @@ O compose sobe junto um simulador com 60 entregadores e um pedido novo a cada ~4
 8× mais rápido que o real. Para mudar: `SIM_COURIERS=200 SIM_ORDER_EVERY=1s SIM_SPEED=20
 docker compose up -d sim`.
 
+```bash
+ENGINE_REPLICAS=4 docker compose up -d                    # várias instâncias do engine
+docker compose --profile obs up -d                        # Prometheus e Grafana
+LOAD_COURIERS=20000 docker compose --profile load up --no-deps load   # carga sintética
+```
+
+O painel de escala fica em <http://127.0.0.1:3001/d/gdrive-escala>.
+
+## Fase 3: escala
+
+**O que é medido.** Entregadores sintéticos, cada um com um WebSocket real pelo nginx, mandam
+uma posição a cada 2 s (40% deles em corrida, gravando rastro e disparando geofence). Dez
+centrais e 200 acompanhamentos de pedido ficam abertos pelo k6. Depois da rampa, 3 min de
+janela estável, e os números saem do Prometheus só dessa janela. **Fan-out** é o tempo entre
+um engine receber a posição e ela chegar, pelo pub/sub do Redis, em todas as instâncias. Um
+ponto passa quando o engine aceita pelo menos 99% das posições enviadas, o p99 do fan-out fica
+abaixo de 250 ms e a central não descarta retrato.
+
+```bash
+docker compose --profile obs up -d     # Prometheus em 127.0.0.1:9090, Grafana em 127.0.0.1:3001
+python3 bench/escala.py --engines 1,2,4 --couriers 5000,10000,20000
+```
+
+**Máquina:** um notebook com Intel Core i5-1334U (12 threads: 2 núcleos de desempenho e 8 de
+eficiência), 11 GB de RAM, Linux 6.18 e Docker 29.9. Engine, Redis, Postgres, nginx, gerador
+de carga, k6 e Prometheus dividem a mesma máquina: o número é do sistema inteiro num notebook,
+não de um engine isolado.
+
+| Engines | Entregadores | Posições aceitas/s | Fan-out p99 | CPU dos engines | CPU do Redis | Passou |
+|---:|---:|---:|---:|---:|---:|:---:|
+| 1 | 5.000 | 2.560 | 29 ms | 0,46 | 0,10 | sim |
+| 1 | 10.000 | 5.060 | 29 ms | 0,82 | 0,18 | sim |
+| 1 | 20.000 | 10.053 | 632 ms | 1,43 | 0,45 | não |
+| 2 | 5.000 | 2.560 | 29 ms | 0,64 | 0,12 | sim |
+| 2 | 10.000 | 5.060 | 29 ms | 1,00 | 0,19 | sim |
+| 2 | 20.000 | 10.059 | 73 ms | 1,69 | 0,38 | sim |
+| 4 | 5.000 | 2.560 | 28 ms | 0,88 | 0,14 | sim |
+| 4 | 10.000 | 5.060 | 29 ms | 1,38 | 0,22 | sim |
+| 4 | 20.000 | 10.060 | 62 ms | 2,31 | 0,48 | sim |
+
+CPU em núcleos. Posições aceitas incluem as dos 60 entregadores do simulador, que segue
+rodando durante a carga. Dados em [`docs/escala/`](docs/escala/).
+
+![Fan-out p99 com 20 mil entregadores, antes e depois da gravação em lote](docs/escala/comparacao-20000.svg)
+
+**O primeiro gargalo.** Na primeira rodada, 20 mil reprovou com 1, 2 e 4 engines, e mais
+instâncias pioravam: com 2 e 4, o p99 passou do teto do histograma (1,6 s) e até 18% das
+posições ficaram para trás. A CPU estava longe do limite. O que travava era o pool de
+conexões do Redis no engine (120 por processo): cada posição fazia duas idas ao Redis, a
+leitura do alvo e o pipeline de escrita, e a fila de comandos esperando conexão chegou a
+4.191 na janela estável (5.323 no pico da rampa). A primeira suspeita, o retrato da central serializado segurando o lock do hub, foi
+corrigida e não mudou o p99; o atraso aparecia num caminho que nem passa por esse lock.
+
+**A correção: gravação em lote.** Cada instância junta as posições e grava a cada 20 ms: um
+pipeline com um `GEOADD` de vários membros, os `HSET`, o rastro e um único `PUBLISH` com a
+lista. O alvo de quem está conectado é relido em bloco a cada 1 s. Chegada, rota prevista e os
+eventos de parado e desvio continuam imediatos. A CPU do engine e a do Redis caíram à metade
+em todos os pontos, e 2 e 4 engines passaram a aguentar 20 mil. O preço aparece em carga
+baixa: o p99 do fan-out sobe de 5–12 ms para ~29 ms, o tempo de esperar o próximo lote.
+
+**Uma instância só está no limite em 20 mil.** O mesmo ponto rodou cinco vezes com o código
+final: 632, 141 e 63 ms com lote de 20 ms, 132 e 122 ms com lote de 50 ms
+([`ab-lote-1-engine-20000.csv`](docs/escala/ab-lote-1-engine-20000.csv)). A variação entre
+rodadas é maior que a diferença entre os dois lotes, então o lote ficou em 20 ms (menos atraso em
+carga baixa, mesma CPU) e 1 engine com 20 mil conta como instável. Com 2 e 4 instâncias, a
+folga é larga. 50 mil não foi medido: nginx, gerador e engines passariam da memória livre da
+máquina.
+
+**O que a carga achou fora do caminho quente.**
+
+- **Despacho cego.** O despacho pegava os 50 entregadores mais próximos e só depois filtrava
+  os livres no Postgres. Com 10 mil entregadores, os despachos "aguardando" foram de 8 para 248
+  em 3 min. A busca agora abre em lotes até achar os 50 livres mais próximos.
+- **nginx.** Com `worker_connections 1024` e 1024 descritores por processo, o nginx parava perto
+  de 6 mil WebSockets.
+- **Portas.** Cada entregador é uma conexão para o mesmo destino; a faixa padrão de portas
+  efêmeras para em 28 mil.
+
+**Observabilidade.** `/metrics` no engine (posições, fan-out, pool do Redis, lote, retrato,
+roteador), na api e no worker (despacho, jobs, atraso da outbox); painel "GDrive — Escala" no
+Grafana, com os alvos achados pelo DNS do Docker, o que acompanha o `--scale` sem configurar
+nada.
+
+**Os testes que sustentam isso:**
+
+- engine: duas instâncias no mesmo Redis dividindo o tempo real; posições de vários
+  entregadores num `PUBLISH` só; leitura do alvo mais velha que uma flag não apaga a flag; alvo
+  atribuído depois da conexão chegando pelo cache; retrato serializado fora do lock sem corrida
+  (`-race`); `/metrics`; gerador de carga apagando do Redis tudo que criou.
+- api: o despacho acha o livre atrás de 60 entregadores colados na loja que não estão livres;
+  métricas por rota declarada, sem um rótulo por id.
+- CI: a pilha sobe com 2 engines, confere que os dois recebem entregadores, roda a fumaça do
+  gerador (200 entregadores, nenhuma falha) e o e2e inteiro em cima disso.
+
 ## Fase 2: a operação
+
+![Fase 2: o painel da loja, o entregador pelo celular com piloto automático, os alertas na central com a desatribuição e o replay de uma entrega](docs/assets/fase-2.gif)
 
 **Quem opera.**
 
@@ -266,6 +363,13 @@ O front usa Node 24 (há um `mise.toml`) e, em desenvolvimento, encaminha `/api`
 CHROMIUM_PATH=/usr/bin/chromium BASE_URL=http://localhost:8085 pnpm e2e
 GIFS=../docs/assets CHROMIUM_PATH=/usr/bin/chromium pnpm video ../videos/2026-10-24-video-1-fases-0-a-2/gdrive-video-1.mp4
 pnpm bench
+ANTES=../docs/escala/rodada-2026-10-25-1445.csv DEPOIS=../docs/escala/rodada-2026-10-25-1637.csv \
+  CHROMIUM_PATH=/usr/bin/chromium pnpm video2 ../videos/<data>-video-2-fase-3/gdrive-video-2.mp4
+```
+
+```bash
+python3 bench/escala.py --engines 1,2,4 --couriers 5000,10000,20000   # matriz de escala
+python3 bench/escala.py --compare <antes>.csv <depois>.csv --couriers 20000
 ```
 
 ## O sistema completo
@@ -279,6 +383,7 @@ pnpm bench
 | `api` e `worker` | Python, FastAPI | Pedidos, máquina de estados, despacho, prazos | fase 1 |
 | Estado | PostgreSQL + PostGIS | Fonte da verdade; outbox e jobs na transação do pedido | fase 1 |
 | Tempo real | Redis | Última posição, fan-out entre instâncias, Streams de eventos | fase 1 |
+| `load` | Go | Entregadores sintéticos com WebSocket real, em rampa, para a medição | fase 3 |
 | Medição | Prometheus, Grafana, k6 | Escala horizontal com número | fase 3 |
 
 ## Fases
@@ -289,4 +394,7 @@ pnpm bench
   acompanhamento do cliente, mapa da central.
 - [x] **2. Operação:** painel da loja, entregador pelo celular, alertas, reatribuição,
   histórico com replay, pico e chuva.
-- [ ] **3. Escala:** várias instâncias, modo carga, métricas e teste de carga.
+- [x] **3. Escala:** várias instâncias, gerador de carga, métricas e a matriz medida; gravação
+  em lote no Redis depois da primeira medição.
+- [ ] **4. Copiloto de alertas:** sugestão de ação para cada alerta da central, com validação
+  determinística e a decisão sempre de quem opera.

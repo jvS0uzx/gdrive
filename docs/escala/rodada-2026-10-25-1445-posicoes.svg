@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 420" font-family="IBM Plex Sans, sans-serif" font-size="12">
+<rect width="720" height="420" fill="#0A1B2A"/>
+<text x="72" y="28" fill="#EEF2F5" font-size="15" font-weight="600">Posições aceitas por segundo</text>
+<line x1="72" x2="696" y1="364.0" y2="364.0" stroke="#1D364C"/>
+<text x="64" y="368.0" fill="#9FB3C3" text-anchor="end">0</text>
+<line x1="72" x2="696" y1="300.8" y2="300.8" stroke="#1D364C"/>
+<text x="64" y="304.8" fill="#9FB3C3" text-anchor="end">2,213</text>
+<line x1="72" x2="696" y1="237.6" y2="237.6" stroke="#1D364C"/>
+<text x="64" y="241.6" fill="#9FB3C3" text-anchor="end">4,426</text>
+<line x1="72" x2="696" y1="174.4" y2="174.4" stroke="#1D364C"/>
+<text x="64" y="178.4" fill="#9FB3C3" text-anchor="end">6,639</text>
+<line x1="72" x2="696" y1="111.2" y2="111.2" stroke="#1D364C"/>
+<text x="64" y="115.2" fill="#9FB3C3" text-anchor="end">8,852</text>
+<line x1="72" x2="696" y1="48.0" y2="48.0" stroke="#1D364C"/>
+<text x="64" y="52.0" fill="#9FB3C3" text-anchor="end">11,065</text>
+<text x="220.6" y="384" fill="#9FB3C3" text-anchor="middle">5,000</text>
+<text x="369.1" y="384" fill="#9FB3C3" text-anchor="middle">10,000</text>
+<text x="666.3" y="384" fill="#9FB3C3" text-anchor="middle">20,000</text>
+<text x="384.0" y="408" fill="#9FB3C3" text-anchor="middle">entregadores conectados</text>
+<text x="16" y="206.0" fill="#9FB3C3" text-anchor="middle" transform="rotate(-90 16 206.0)">posições/s</text>
+<line x1="72.0" y1="364.0" x2="666.3" y2="78.4" stroke="#668096" stroke-dasharray="4 4"/>
+<polyline points="220.6,290.9 369.1,219.5 666.3,76.7" fill="none" stroke="#00ADD8" stroke-width="2.5"/>
+<circle cx="220.6" cy="290.9" r="3.5" fill="#00ADD8"/>
+<circle cx="369.1" cy="219.5" r="3.5" fill="#00ADD8"/>
+<circle cx="666.3" cy="76.7" r="3.5" fill="#00ADD8"/>
+<rect x="566" y="48" width="12" height="3" fill="#00ADD8"/>
+<text x="584" y="53" fill="#EEF2F5">1 engine</text>
+<polyline points="220.6,290.9 369.1,219.5 666.3,84.6" fill="none" stroke="#E3C45C" stroke-width="2.5"/>
+<circle cx="220.6" cy="290.9" r="3.5" fill="#E3C45C"/>
+<circle cx="369.1" cy="219.5" r="3.5" fill="#E3C45C"/>
+<circle cx="666.3" cy="84.6" r="3.5" fill="#E3C45C"/>
+<rect x="566" y="68" width="12" height="3" fill="#E3C45C"/>
+<text x="584" y="73" fill="#EEF2F5">2 engines</text>
+<polyline points="220.6,290.9 369.1,219.5 666.3,128.7" fill="none" stroke="#4CC38A" stroke-width="2.5"/>
+<circle cx="220.6" cy="290.9" r="3.5" fill="#4CC38A"/>
+<circle cx="369.1" cy="219.5" r="3.5" fill="#4CC38A"/>
+<circle cx="666.3" cy="128.7" r="3.5" fill="#4CC38A"/>
+<rect x="566" y="88" width="12" height="3" fill="#4CC38A"/>
+<text x="584" y="93" fill="#EEF2F5">4 engines</text>
+<line x1="566" x2="578" y1="109" y2="109" stroke="#668096" stroke-dasharray="4 4"/>
+<text x="584" y="113" fill="#9FB3C3">1 posição a cada 2 s</text>
+</svg>

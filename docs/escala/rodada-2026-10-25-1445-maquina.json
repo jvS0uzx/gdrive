@@ -1,0 +1,7 @@
+{
+  "cpu": "13th Gen Intel(R) Core(TM) i5-1334U",
+  "nucleos": 12,
+  "memoria_mb": 11579,
+  "sistema": "Linux 6.18.57-2-lts",
+  "docker": "29.9.1"
+}
