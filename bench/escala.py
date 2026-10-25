@@ -325,7 +325,10 @@ def compare(before: Path, after: Path, couriers: int, out: Path) -> None:
                 continue
             x = x0 + j * bar
             out_lines.append(f'<rect x="{x:.1f}" y="{py(v):.1f}" width="{bar - 6:.1f}" height="{py(0) - py(v):.1f}" fill="{color}"/>')
-            out_lines.append(f'<text x="{x + (bar - 6) / 2:.1f}" y="{py(v) - 6:.1f}" fill="#EEF2F5" text-anchor="middle">{br(v)} ms</text>')
+            # 1.638,4 ms era o último degrau finito do histograma antigo (2×, 15 degraus): o p99
+            # real passou dele, e o gráfico não pode mostrar o teto como se fosse o valor.
+            shown = f"≥ {br(v)}" if v >= 1638.4 else br(v)
+            out_lines.append(f'<text x="{x + (bar - 6) / 2:.1f}" y="{py(v) - 6:.1f}" fill="#EEF2F5" text-anchor="middle">{shown} ms</text>')
         label = "engine" if engines_n == 1 else "engines"
         out_lines.append(f'<text x="{left + group * i + group / 2:.1f}" y="{h - bottom + 20}" fill="#9FB3C3" text-anchor="middle">{engines_n} {label}</text>')
     middle = (top + h - bottom) / 2

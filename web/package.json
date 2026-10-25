@@ -12,6 +12,7 @@
     "preview": "vite preview",
     "e2e": "playwright test",
     "video": "node scripts/record-video-1.mjs",
+    "video2": "node scripts/record-video-2.mjs",
     "bench": "node scripts/bench-mapa.mjs"
   },
   "dependencies": {
