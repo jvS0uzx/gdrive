@@ -11,5 +11,10 @@ export default defineConfig({
     viewport: { width: 1280, height: 800 },
     launchOptions: { executablePath },
   },
-  projects: [{ name: "chromium", use: { browserName: "chromium" } }],
+  // A chuva da simulação é global: o engine aplica quando há chuva em qualquer rota.
+  // Testes que ligam a chuva rodam depois dos demais, senão quebram a medição de rota seca.
+  projects: [
+    { name: "chromium", use: { browserName: "chromium" }, testIgnore: "**/operacao.spec.ts" },
+    { name: "simulacao", use: { browserName: "chromium" }, testMatch: "**/operacao.spec.ts", dependencies: ["chromium"] },
+  ],
 });

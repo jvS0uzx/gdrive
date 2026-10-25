@@ -1,5 +1,7 @@
 import { expect, test, type APIRequestContext } from "@playwright/test";
 
+test.describe.configure({ mode: "serial" });
+
 type Listed = { id: number; courier_id: number | null };
 type Courier = { id: number; human: boolean };
 
@@ -33,9 +35,9 @@ test("chuva e pico mudam pelo painel da central", async ({ page, request }) => {
     const panel = page.getByTestId("simulacao");
     const rain = panel.getByTestId("chuva");
     await expect(rain).toBeEnabled({ timeout: 20_000 });
-    await expect(rain).toHaveText("Sem chuva");
+    await expect(rain).toHaveAttribute("aria-pressed", "false");
     await rain.click();
-    await expect(rain).toHaveText("Chovendo");
+    await expect(rain).toHaveAttribute("aria-pressed", "true");
     await expect.poll(async () => (await (await request.get("/api/sim")).json()).rain).toBe(true);
 
     await panel.getByTestId("pico-3").click();
@@ -59,7 +61,8 @@ test("entregador sem sinal vira alerta na central e a central libera o pedido", 
   const operation = page.getByTestId("analise-operacao");
   await expect(operation.getByTestId("alertas-do-pedido")).toContainText("Sem sinal");
   await operation.getByTestId("desatribuir").click();
-  await expect(page.getByTestId("operacao-resultado")).toContainText(`#${courier} liberado`);
+  await expect(operation.getByTestId("desatribuir-pendente")).toBeVisible();
+  await expect(page.getByTestId("operacao-resultado")).toContainText(`#${courier} liberado`, { timeout: 15_000 });
 
   await expect(card).not.toHaveAttribute("data-alerts", /sinal_perdido/, { timeout: 10_000 });
   const detail = await (await request.get(`/api/orders/${order}`)).json();
