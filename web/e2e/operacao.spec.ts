@@ -60,6 +60,16 @@ test("entregador sem sinal vira alerta na central e a central libera o pedido", 
   await card.dispatchEvent("click");
   const operation = page.getByTestId("analise-operacao");
   await expect(operation.getByTestId("alertas-do-pedido")).toContainText("Sem sinal");
+
+  // Esc com a desatribuição na janela fecha o painel e cancela a ação, em vez de executá-la.
+  await operation.getByTestId("desatribuir").click();
+  await expect(operation.getByTestId("desatribuir-pendente")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByTestId("analise")).toHaveCount(0);
+  await page.waitForTimeout(6_000);
+  expect((await (await request.get(`/api/orders/${order}`)).json()).courier?.id).toBe(courier);
+
+  await card.dispatchEvent("click");
   await operation.getByTestId("desatribuir").click();
   await expect(operation.getByTestId("desatribuir-pendente")).toBeVisible();
   await expect(page.getByTestId("operacao-resultado")).toContainText(`#${courier} liberado`, { timeout: 15_000 });

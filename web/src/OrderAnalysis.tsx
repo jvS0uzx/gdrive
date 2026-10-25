@@ -185,6 +185,17 @@ function Operation({ orderId, order, status }: { orderId: number; order: LiveOrd
     setMessage({ text: "Desatribuição cancelada: o pedido mudou antes de a janela fechar.", error: true });
   }, [unassigning, canUnassign, courier, orderId, unassignQueue.undo]);
 
+  // Esc fecha o painel na central, e fechar executa o que está na janela. Com uma desatribuição
+  // pendente, Esc também a cancela: ouvido na captura, antes do fechamento.
+  useEffect(() => {
+    if (!unassigning) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") unassignQueue.undo(orderId);
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [unassigning, orderId, unassignQueue.undo]);
+
   if (!order || (!alerts.length && !canUnassign && !canAssign && !canFault && !unassigning)) return null;
 
   return (
