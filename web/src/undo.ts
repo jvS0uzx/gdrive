@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
 
 export const UNDO_MS = 5000;
 
@@ -63,4 +63,21 @@ export function useUndoQueue() {
   }, [fire]);
 
   return { pending, schedule, undo };
+}
+
+// O botão que dispara some quando a ação fica pendente, e o Desfazer some quando ela sai da fila.
+// Sem devolver o foco, quem usa teclado cai no body. Só mexe se o foco de fato se perdeu.
+export function useUndoFocus(
+  pending: boolean,
+  trigger: RefObject<HTMLElement | null>,
+  undo: RefObject<HTMLElement | null>,
+) {
+  const was = useRef(pending);
+  useEffect(() => {
+    if (was.current === pending) return;
+    was.current = pending;
+    const active = document.activeElement;
+    if (active && active !== document.body) return;
+    (pending ? undo : trigger).current?.focus();
+  }, [pending, trigger, undo]);
 }

@@ -455,7 +455,6 @@ export default function Central() {
               <h2 className="section-title">Alertas</h2>
               <span
                 data-testid="alertas-abertos"
-                aria-live="polite"
                 className={`num text-sm ${summary?.alerted.length ? "text-target" : "text-strong"}`}
               >
                 {summary ? formatInt(summary.alerted.length) : "—"}

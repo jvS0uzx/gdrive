@@ -100,7 +100,7 @@ export default function History() {
         </div>
 
         {error && (
-          <p className="mt-4 text-sm text-target" aria-live="polite">
+          <p className="mt-4 text-sm text-target" role="alert">
             {error}
           </p>
         )}

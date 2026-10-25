@@ -78,7 +78,7 @@ export default function CourierPicker() {
         </p>
 
         {error && (
-          <p className="mt-6 text-sm text-target" aria-live="polite">
+          <p className="mt-6 text-sm text-target" role="alert">
             {error}
           </p>
         )}

@@ -6,7 +6,7 @@ function subscribe(onChange: () => void): () => void {
 }
 
 export function navigate(to: string) {
-  if (to === window.location.pathname) return;
+  if (to === window.location.pathname + window.location.search) return;
   window.history.pushState(null, "", to);
   window.dispatchEvent(new PopStateEvent("popstate"));
 }

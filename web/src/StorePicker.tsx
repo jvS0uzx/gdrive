@@ -4,8 +4,10 @@ import { Link } from "./router";
 
 const SEARCH_DELAY_MS = 250;
 
+const queryFromUrl = () => new URLSearchParams(window.location.search).get("busca") ?? "";
+
 export default function StorePicker() {
-  const [query, setQuery] = useState(() => new URLSearchParams(window.location.search).get("busca") ?? "");
+  const [query, setQuery] = useState(queryFromUrl);
   const [stores, setStores] = useState<StoreSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   // Só celular abre o teclado sozinho; no desktop o foco automático é útil.
@@ -19,6 +21,13 @@ export default function StorePicker() {
     const url = query ? `${window.location.pathname}?busca=${encodeURIComponent(query)}` : window.location.pathname;
     window.history.replaceState(null, "", url);
   }, [query]);
+
+  // Clicar em "Loja" no menu com uma busca aberta muda só a query, e o roteador não remonta a tela.
+  useEffect(() => {
+    const sync = () => setQuery(queryFromUrl());
+    window.addEventListener("popstate", sync);
+    return () => window.removeEventListener("popstate", sync);
+  }, []);
 
   useEffect(() => {
     let alive = true;
@@ -56,7 +65,7 @@ export default function StorePicker() {
         />
 
         {error && (
-          <p className="mt-3 text-sm text-target" aria-live="polite">
+          <p className="mt-3 text-sm text-target" role="alert">
             {error}
           </p>
         )}

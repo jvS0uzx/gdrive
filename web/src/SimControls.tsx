@@ -31,11 +31,9 @@ export function CourierFaults({ courierId }: { courierId: number }) {
           </button>
         ))}
       </div>
-      {message && (
-        <p className={`mt-1.5 text-xs ${message.error ? "text-target" : "text-muted"}`} aria-live="polite">
-          {message.text}
-        </p>
-      )}
+      <div aria-live="polite">
+        {message && <p className={`mt-1.5 text-xs ${message.error ? "text-target" : "text-muted"}`}>{message.text}</p>}
+      </div>
     </div>
   );
 }
@@ -86,6 +84,10 @@ export default function SimControls({ liveRain }: { liveRain: boolean | undefine
           className={`btn ${rain ? "border-deep bg-deep/25 text-strong hover:bg-deep/35" : ""}`}
         >
           Chuva
+          {/* O estado fica visível em texto, não só na cor; leitor de tela já recebe pelo aria-pressed. */}
+          <span aria-hidden="true" className={rain ? "text-strong" : "text-muted"}>
+            {rain ? "ligada" : "desligada"}
+          </span>
         </button>
         <div
           className="flex h-8 items-stretch overflow-hidden rounded-md border border-line text-[13px]"
@@ -115,7 +117,7 @@ export default function SimControls({ liveRain }: { liveRain: boolean | undefine
         </div>
       </div>
       {error && (
-        <p className="mt-1.5 text-xs text-target" aria-live="polite">
+        <p className="mt-1.5 text-xs text-target" role="alert">
           {error}
         </p>
       )}

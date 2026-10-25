@@ -27,7 +27,7 @@ import { LineSample } from "./MapParts";
 import { LEGS, LEG_COLORS, OFF_ROUTE_METERS, alternativeFeatures, deviation, journeyFeatures } from "./routeLayers";
 import { Link } from "./router";
 import { CourierFaults } from "./SimControls";
-import { useUndoQueue } from "./undo";
+import { useUndoFocus, useUndoQueue } from "./undo";
 
 type Stage = "loja" | "cliente" | "fixo";
 
@@ -145,6 +145,10 @@ function Operation({ orderId, order, status }: { orderId: number; order: LiveOrd
   const alerts = Object.entries(order?.alerts ?? {}).sort((a, b) => (a[1] ?? 0) - (b[1] ?? 0));
   const unassignQueue = useUndoQueue();
   const unassigning = unassignQueue.pending[orderId] ?? null;
+  const unassignFor = useRef<number | undefined>(undefined);
+  const unassignButton = useRef<HTMLButtonElement>(null);
+  const undoButton = useRef<HTMLButtonElement>(null);
+  useUndoFocus(unassigning !== null, unassignButton, undoButton);
 
   useEffect(() => {
     setCandidates(null);
@@ -172,6 +176,15 @@ function Operation({ orderId, order, status }: { orderId: number; order: LiveOrd
   const canUnassign = courier !== undefined && UNASSIGNABLE.includes(status);
   const canAssign = status === "em_preparo";
   const canFault = courier !== undefined && MOVING.includes(status);
+
+  // A API desatribui quem estiver no pedido: se a etapa ou o entregador mudou dentro da
+  // janela, rodar a ação liberaria outra pessoa ou falharia. Cancela e avisa.
+  useEffect(() => {
+    if (!unassigning || (canUnassign && courier === unassignFor.current)) return;
+    unassignQueue.undo(orderId);
+    setMessage({ text: "Desatribuição cancelada: o pedido mudou antes de a janela fechar.", error: true });
+  }, [unassigning, canUnassign, courier, orderId, unassignQueue.undo]);
+
   if (!order || (!alerts.length && !canUnassign && !canAssign && !canFault && !unassigning)) return null;
 
   return (
@@ -193,26 +206,20 @@ function Operation({ orderId, order, status }: { orderId: number; order: LiveOrd
       <div className="mt-2 flex flex-wrap gap-2">
         {canUnassign && !unassigning && (
           <button
+            ref={unassignButton}
             type="button"
             disabled={busy}
-            onClick={() =>
+            onClick={() => {
+              unassignFor.current = courier;
               unassignQueue.schedule(orderId, `#${courier} será liberado`, () =>
                 act(() => unassignOrder(orderId), `#${courier} liberado; o despacho procura outro entregador.`),
-              )
-            }
+              );
+            }}
             data-testid="desatribuir"
             className="btn btn-danger"
           >
             Desatribuir o #{courier}
           </button>
-        )}
-        {unassigning && (
-          <p className="flex w-full items-center justify-between gap-2 text-xs text-strong" role="status" data-testid="desatribuir-pendente">
-            <span>{unassigning}…</span>
-            <button type="button" className="btn h-7 px-2.5 text-xs" onClick={() => unassignQueue.undo(orderId)}>
-              Desfazer
-            </button>
-          </p>
         )}
         {canAssign && (
           <button
@@ -224,6 +231,16 @@ function Operation({ orderId, order, status }: { orderId: number; order: LiveOrd
           >
             {candidates ? "Atualizar candidatos" : "Atribuir na mão"}
           </button>
+        )}
+      </div>
+      <div aria-live="polite">
+        {unassigning && (
+          <p className="mt-2 flex items-center justify-between gap-2 text-xs text-strong" data-testid="desatribuir-pendente">
+            <span>{unassigning}…</span>
+            <button ref={undoButton} type="button" className="btn h-7 px-2.5 text-xs" onClick={() => unassignQueue.undo(orderId)}>
+              Desfazer
+            </button>
+          </p>
         )}
       </div>
       {canAssign && candidates && (
@@ -258,15 +275,13 @@ function Operation({ orderId, order, status }: { orderId: number; order: LiveOrd
           <CourierFaults courierId={courier} />
         </div>
       )}
-      {message && (
-        <p
-          className={`mt-2 text-[11px] ${message.error ? "text-target" : "text-muted"}`}
-          data-testid="operacao-resultado"
-          aria-live="polite"
-        >
-          {message.text}
-        </p>
-      )}
+      <div aria-live="polite">
+        {message && (
+          <p className={`mt-2 text-[11px] ${message.error ? "text-target" : "text-muted"}`} data-testid="operacao-resultado">
+            {message.text}
+          </p>
+        )}
+      </div>
     </section>
   );
 }

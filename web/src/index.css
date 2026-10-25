@@ -37,15 +37,18 @@ body {
   font-feature-settings: "ss01";
 }
 
-p,
-li {
-  text-wrap: pretty;
-}
+/* Na camada base: `text-wrap` também define o modo de quebra, e fora de camada venceria o `truncate`. */
+@layer base {
+  p,
+  li {
+    text-wrap: pretty;
+  }
 
-h1,
-h2,
-h3 {
-  text-wrap: balance;
+  h1,
+  h2,
+  h3 {
+    text-wrap: balance;
+  }
 }
 
 :focus-visible {
@@ -194,7 +197,6 @@ textarea:focus-visible {
 
 @media (prefers-reduced-motion: reduce) {
   .btn,
-  .btn::before,
   .switch,
   .switch::before {
     transition: none;

@@ -14,7 +14,7 @@ import { metersBetween } from "./cityMap";
 import { formatClock, formatDistance } from "./format";
 import { statusTone } from "./labels";
 import { Link } from "./router";
-import { useUndoQueue } from "./undo";
+import { useUndoFocus, useUndoQueue } from "./undo";
 
 const POLL_MS = 2000;
 const AUTO_REFUSE_MS = 5 * 60_000;
@@ -128,6 +128,9 @@ function OrderCard({ order, store, now, busy, error, prep, onPrep, onAccept, onR
   const column = columnOf(order);
   const meters = metersBetween([store.lon, store.lat], [order.customer_lon, order.customer_lat]);
   const left = Date.parse(order.created_at) + AUTO_REFUSE_MS - now;
+  const rejectButton = useRef<HTMLButtonElement>(null);
+  const undoButton = useRef<HTMLButtonElement>(null);
+  useUndoFocus(pending !== null, rejectButton, undoButton);
 
   return (
     <li
@@ -170,16 +173,19 @@ function OrderCard({ order, store, now, busy, error, prep, onPrep, onAccept, onR
               ))}
             </select>
           </label>
-          {pending ? (
-            <div className="mt-2.5 flex items-center justify-between gap-2 text-xs text-strong" role="status">
-              <span>{pending}…</span>
-              <button type="button" className="btn h-7 px-2.5 text-xs" onClick={onUndo}>
-                Desfazer
-              </button>
-            </div>
-          ) : (
+          <div aria-live="polite">
+            {pending && (
+              <div className="mt-2.5 flex items-center justify-between gap-2 text-xs text-strong" data-testid="recusa-pendente">
+                <span>{pending}…</span>
+                <button ref={undoButton} type="button" className="btn h-7 px-2.5 text-xs" onClick={onUndo}>
+                  Desfazer
+                </button>
+              </div>
+            )}
+          </div>
+          {!pending && (
             <div className="mt-2.5 grid grid-cols-2 gap-2">
-              <button type="button" className="btn btn-danger" disabled={busy} onClick={onReject}>
+              <button ref={rejectButton} type="button" className="btn btn-danger" disabled={busy} onClick={onReject}>
                 Recusar
               </button>
               <button type="button" className="btn btn-primary" disabled={busy} onClick={onAccept}>
@@ -278,6 +284,19 @@ export default function StorePanel({ id }: { id: number }) {
     const timer = window.setInterval(refresh, POLL_MS);
     return () => window.clearInterval(timer);
   }, [missing, refresh]);
+
+  // O simulador ou a recusa automática podem tirar o pedido de Novos dentro da janela;
+  // aí a recusa não vale mais e o card já mudou de coluna, sem o Desfazer à vista.
+  useEffect(() => {
+    if (!orders) return;
+    for (const key of Object.keys(rejections.pending)) {
+      const orderId = Number(key);
+      const order = orders.find((o) => o.id === orderId);
+      if (order && columnOf(order) === "novos") continue;
+      rejections.undo(orderId);
+      setErrors((e) => ({ ...e, [orderId]: "Recusa cancelada: o pedido saiu de Novos antes de a janela fechar." }));
+    }
+  }, [orders, rejections.pending, rejections.undo]);
 
   const act = async (orderId: number, action: () => Promise<unknown>) => {
     setBusy((s) => new Set(s).add(orderId));
@@ -387,7 +406,7 @@ export default function StorePanel({ id }: { id: number }) {
             </span>
           </label>
           {manualError && (
-            <p className="text-xs text-target" aria-live="polite">
+            <p className="text-xs text-target" role="alert">
               {manualError}
             </p>
           )}
@@ -407,7 +426,7 @@ export default function StorePanel({ id }: { id: number }) {
       </header>
 
       {ordersError && (
-        <p className="px-4 py-2 text-sm text-target sm:px-6" aria-live="polite">
+        <p className="px-4 py-2 text-sm text-target sm:px-6" role="alert">
           {ordersError}
         </p>
       )}

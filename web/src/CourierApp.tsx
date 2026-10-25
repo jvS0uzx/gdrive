@@ -494,6 +494,10 @@ export default function CourierApp({ id }: { id: number }) {
         </div>
 
         <div className="max-h-[68%] shrink-0 overflow-y-auto px-4 pb-4 pt-4">
+          {/* O aviso visível nasce junto com a seção de espera; região viva precisa existir antes. */}
+          <p className="sr-only" aria-live="polite">
+            {notice ?? ""}
+          </p>
           {offer && (
             <section data-testid="oferta" data-pedido={offer.order_id}>
               <div className="flex items-baseline justify-between gap-3">
@@ -609,11 +613,7 @@ export default function CourierApp({ id }: { id: number }) {
           {courier && !offer && !ride && (
             <section data-testid="espera">
               {notice && (
-                <p
-                  className="mb-3 border-l-2 border-origin pl-3 text-[13px] text-origin"
-                  data-testid="aviso-entrega"
-                  aria-live="polite"
-                >
+                <p className="mb-3 border-l-2 border-origin pl-3 text-[13px] text-origin" data-testid="aviso-entrega">
                   {notice}
                 </p>
               )}

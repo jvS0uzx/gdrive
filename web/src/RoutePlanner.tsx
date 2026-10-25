@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { Marker, type GeoJSONSource, type Map as MapLibre, type MapMouseEvent } from "maplibre-gl";
+import { LngLatBounds, Marker, type GeoJSONSource, type Map as MapLibre, type MapMouseEvent } from "maplibre-gl";
 import { fetchRoute, type LngLat, type RouteResult } from "./api";
 import { COLORS, EMPTY, ROADS, byZoom, line, pin, point, useCityMap } from "./cityMap";
 import { formatDistance, formatDuration, formatInt, formatSpeed } from "./format";
@@ -75,6 +75,7 @@ function addRouteLayers(map: MapLibre) {
 export default function RoutePlanner() {
   const { container, map, meta, ready, error: cityError } = useCityMap(addRouteLayers);
   const markers = useRef<{ origin?: Marker; target?: Marker }>({});
+  const fitTyped = useRef(false);
   const [points, setPoints] = useState<Points>({});
   const [fields, setFields] = useState({ origin: "", target: "" });
   const [fieldError, setFieldError] = useState<string | null>(null);
@@ -90,6 +91,7 @@ export default function RoutePlanner() {
 
   useEffect(() => {
     setFields({ origin: formatLngLat(points.origin), target: formatLngLat(points.target) });
+    setFieldError(null);
   }, [points]);
 
   const submitFields = (e: FormEvent<HTMLFormElement>) => {
@@ -101,6 +103,7 @@ export default function RoutePlanner() {
       return;
     }
     setFieldError(null);
+    fitTyped.current = true;
     setPoints({ origin, target });
   };
 
@@ -110,6 +113,7 @@ export default function RoutePlanner() {
     m.getCanvas().style.cursor = "crosshair";
     const onClick = (e: MapMouseEvent) => {
       const at: LngLat = [e.lngLat.lng, e.lngLat.lat];
+      fitTyped.current = false;
       setPoints((p) => (p.origin && !p.target ? { ...p, target: at } : { origin: at }));
     };
     m.on("click", onClick);
@@ -175,6 +179,14 @@ export default function RoutePlanner() {
     const total = route.cumulative_seconds[route.cumulative_seconds.length - 1];
     const duration = Math.min(6000, Math.max(2000, total * 15));
     const still = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    // Coordenada digitada pode estar fora da vista; clique no mapa já está nela.
+    const coords = route.path.coordinates;
+    if (fitTyped.current && coords.length > 0) {
+      fitTyped.current = false;
+      const bounds = new LngLatBounds(coords[0], coords[0]);
+      for (const at of coords) bounds.extend(at);
+      m.fitBounds(bounds, { padding: 48, maxZoom: 16, duration: still ? 0 : 600 });
+    }
     const start = performance.now();
     let frame = 0;
     const step = (now: number) => {
@@ -268,7 +280,7 @@ export default function RoutePlanner() {
             </label>
           </div>
           {fieldError && (
-            <p className="mt-2 text-xs text-target" aria-live="polite">
+            <p className="mt-2 text-xs text-target" role="alert">
               {fieldError}
             </p>
           )}
