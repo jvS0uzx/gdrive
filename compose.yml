@@ -117,6 +117,9 @@ services:
       dockerfile: engine/Dockerfile
     profiles: ["load"]
     entrypoint: ["/load"]
+    # Cada entregador é uma conexão para o mesmo web:80; a faixa padrão (28 mil portas) não passa de 28 mil.
+    sysctls:
+      net.ipv4.ip_local_port_range: "1024 65000"
     environment:
       TARGET: ws://web
       REDIS_URL: redis://redis:6379/0
@@ -139,6 +142,9 @@ services:
       dockerfile: web/Dockerfile
     ports:
       - "8085:80"
+    # Com um engine só, todas as conexões do nginx vão para o mesmo engine:8080.
+    sysctls:
+      net.ipv4.ip_local_port_range: "1024 65000"
     depends_on:
       engine:
         condition: service_healthy
