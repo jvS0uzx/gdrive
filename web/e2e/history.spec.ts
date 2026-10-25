@@ -97,9 +97,29 @@ test("o menu leva para loja, entregador e histórico", async ({ page }) => {
 });
 
 test("a página do histórico fica na URL: avança, volta e abre direto pelo link", async ({ page }) => {
+  // Histórico fixo de 200 entregas: a CI sobe do zero com poucas, e o que se testa aqui é a URL.
+  await page.route(/\/api\/history\?/, async (route) => {
+    const params = new URL(route.request().url()).searchParams;
+    const limit = Number(params.get("limit")), offset = Number(params.get("offset"));
+    const total = 200;
+    const items = Array.from({ length: Math.max(0, Math.min(limit, total - offset)) }, (_, i) => ({
+      id: 900_000 - offset - i,
+      store_name: "Loja de teste",
+      courier_id: 1,
+      courier_name: null,
+      created_at: "2026-10-25T12:00:00Z",
+      delivered_at: "2026-10-25T12:20:00Z",
+      promised_at: "2026-10-25T12:30:00Z",
+      seconds: 1200,
+      late: false,
+      meters: 3000,
+      alerts: 0,
+    }));
+    await route.fulfill({ json: { total, items } });
+  });
   await page.goto("/historico");
   const range = page.getByTestId("paginacao");
-  await expect(range).toHaveText(/^1–50 de [\d.]+$/);
+  await expect(range).toHaveText("1–50 de 200");
 
   await page.getByRole("button", { name: "Mais antigas" }).click();
   await expect(page).toHaveURL(/\/historico\?pagina=2$/);
