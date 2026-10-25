@@ -95,3 +95,23 @@ test("o menu leva para loja, entregador e histórico", async ({ page }) => {
     await expect(nav.getByRole("link", { name })).toHaveAttribute("aria-current", "page");
   }
 });
+
+test("a página do histórico fica na URL: avança, volta e abre direto pelo link", async ({ page }) => {
+  await page.goto("/historico");
+  const range = page.getByTestId("paginacao");
+  await expect(range).toHaveText(/^1–50 de [\d.]+$/);
+
+  await page.getByRole("button", { name: "Mais antigas" }).click();
+  await expect(page).toHaveURL(/\/historico\?pagina=2$/);
+  await expect(range).toHaveText(/^51–100 de /);
+
+  await page.getByRole("button", { name: "Mais recentes" }).click();
+  await expect(page).toHaveURL(/\/historico$/);
+  await expect(range).toHaveText(/^1–50 de /);
+
+  await page.goBack();
+  await expect(range).toHaveText(/^51–100 de /);
+
+  await page.goto("/historico?pagina=3");
+  await expect(range).toHaveText(/^101–150 de /);
+});

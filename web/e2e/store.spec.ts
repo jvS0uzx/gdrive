@@ -66,6 +66,49 @@ test("a loja opera na mão: o pedido de teste entra em Novos, é aceito, vai par
   }
 });
 
+test("recusar abre uma janela de desfazer: desfazer mantém o pedido, e a recusa só sai quando a janela fecha", async ({
+  page,
+  request,
+}) => {
+  test.setTimeout(60_000);
+  const stores: Store[] = await (await request.get("/api/stores?limit=50")).json();
+  // Longe da pizzaria do teste acima, que roda em paralelo e mexe no modo manual.
+  const store = stores.find((s) => s.id !== 1 && !s.manual && !/pizza/i.test(s.name));
+  if (!store) throw new Error("nenhuma loja livre para o teste");
+  const statusOf = async (id: number) => (await (await request.get(`/api/orders/${id}`)).json()).status;
+  let orderId: number | null = null;
+
+  try {
+    await request.put(`/api/stores/${store.id}/manual`, { data: { manual: true } });
+    const created = await request.post(`/api/stores/${store.id}/test-order`);
+    expect(created.status()).toBe(201);
+    const id: number = (await created.json()).id;
+    orderId = id;
+
+    await page.goto(`/loja/${store.id}`);
+    const fresh = card(page, "novos", id);
+    await expect(fresh).toBeVisible({ timeout: 15_000 });
+
+    await fresh.getByRole("button", { name: "Recusar" }).click();
+    await expect(fresh.getByTestId("recusa-pendente")).toContainText(`Pedido #${id} será recusado`);
+    await expect(fresh.getByRole("button", { name: "Desfazer" })).toBeFocused();
+    await expect(fresh.getByRole("button", { name: "Aceitar" })).toHaveCount(0);
+
+    await fresh.getByRole("button", { name: "Desfazer" }).click();
+    await expect(fresh.getByRole("button", { name: "Recusar" })).toBeFocused();
+    await page.waitForTimeout(6_000);
+    expect(await statusOf(id)).toBe("aguardando_loja");
+
+    await fresh.getByRole("button", { name: "Recusar" }).click();
+    expect(await statusOf(id)).toBe("aguardando_loja");
+    await expect(card(page, "sairam", id)).toBeVisible({ timeout: 15_000 });
+    expect(await statusOf(id)).toBe("recusado");
+  } finally {
+    if (orderId !== null) await request.post(`/api/orders/${orderId}/cancel`);
+    await request.put(`/api/stores/${store.id}/manual`, { data: { manual: false } });
+  }
+});
+
 test("loja que não existe mostra aviso e caminho de volta", async ({ page }) => {
   await page.goto("/loja/999999999");
   await expect(page.getByText("Loja não encontrada")).toBeVisible();

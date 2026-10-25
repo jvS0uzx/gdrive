@@ -117,7 +117,8 @@ test("a análise de um pedido em andamento compara rotas, explica o despacho e m
   const riding = page.locator(`[data-testid="card-pedido"][data-status="em_rota"]${quiet}`);
   const card = (await riding.count()) > 0 ? riding.first() : moving.first();
   const id = ((await card.getAttribute("aria-label")) ?? "").replace(/\D/g, "");
-  await card.dispatchEvent("click");
+  // `first()` é reavaliado a cada ação: com a simulação andando, outro card pode virar o primeiro.
+  await page.locator(`[data-testid="card-pedido"][aria-label="Pedido #${id}"]`).dispatchEvent("click");
 
   const analysis = page.getByTestId("analise");
   await expect(analysis).toContainText(`Análise do pedido #${id}`);
