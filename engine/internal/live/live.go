@@ -34,7 +34,7 @@ const (
 	snapshotEvery   = 500 * time.Millisecond
 	targetEvery     = time.Second
 	targetChunk     = 1000
-	flushEvery      = 20 * time.Millisecond
+	defaultFlush    = 20 * time.Millisecond
 	flushMax        = 2000
 	writeQueue      = 1 << 16
 	staleAfter      = 20 * time.Second
@@ -127,6 +127,7 @@ var finished = map[string]bool{"entregue": true, "cancelado": true, "recusado": 
 type Hub struct {
 	planner      Planner
 	stoppedAfter time.Duration
+	flushEvery   time.Duration
 	rain         atomic.Bool
 	rdb          *redis.Client
 	log          *slog.Logger
@@ -145,6 +146,7 @@ type Hub struct {
 func New(rdb *redis.Client, log *slog.Logger) *Hub {
 	return &Hub{
 		stoppedAfter: defaultStoppedAfter,
+		flushEvery:   defaultFlush,
 		rdb:          rdb,
 		log:          log,
 		couriers:     map[int64]*courierState{},
@@ -163,6 +165,14 @@ func (h *Hub) SetPlanner(p Planner) {
 
 func (h *Hub) SetStoppedAfter(d time.Duration) {
 	h.stoppedAfter = d
+}
+
+// SetFlushEvery troca o intervalo do lote antes do Run. Menor dá menos atraso por posição e mais
+// idas ao Redis; o ponto certo depende da carga, por isso é configurável e medido.
+func (h *Hub) SetFlushEvery(d time.Duration) {
+	if d > 0 {
+		h.flushEvery = d
+	}
 }
 
 func (h *Hub) Raining() bool {
@@ -230,10 +240,10 @@ func (h *Hub) followPositions(ctx context.Context) {
 	}
 }
 
-// flushPositions junta as posições desta instância e grava a cada flushEvery (ou a cada
+// flushPositions junta as posições desta instância e grava a cada h.flushEvery (ou a cada
 // flushMax): com 10 mil posições/s, uma ida e volta por posição esgotava o pool do Redis.
 func (h *Hub) flushPositions(ctx context.Context) {
-	tick := time.NewTicker(flushEvery)
+	tick := time.NewTicker(h.flushEvery)
 	defer tick.Stop()
 	batch := make([]write, 0, flushMax)
 	for {
