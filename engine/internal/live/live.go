@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"maps"
 	"math"
 	"net/http"
 	"strconv"
@@ -31,7 +32,11 @@ const (
 	weatherEvery    = 2 * time.Second
 	streamMax       = 200_000
 	snapshotEvery   = 500 * time.Millisecond
-	targetFreshness = 2 * time.Second
+	targetEvery     = time.Second
+	targetChunk     = 1000
+	flushEvery      = 20 * time.Millisecond
+	flushMax        = 2000
+	writeQueue      = 1 << 16
 	staleAfter      = 20 * time.Second
 	replayEntries   = 20000
 )
@@ -104,6 +109,19 @@ type courierState struct {
 	seen time.Time
 }
 
+// write é uma posição esperando o próximo lote: gravada no Redis e publicada junto com as
+// outras, em vez de uma ida e volta por posição.
+type write struct {
+	pos   position
+	track string
+	point string
+}
+
+type cachedTarget struct {
+	fields map[string]string
+	read   time.Time
+}
+
 var finished = map[string]bool{"entregue": true, "cancelado": true, "recusado": true}
 
 type Hub struct {
@@ -117,6 +135,11 @@ type Hub struct {
 	orders       map[int64]*orderState
 	central      map[chan []byte]struct{}
 	watchers     map[int64]map[chan []byte]struct{}
+	writes       chan write
+
+	targetsMu sync.Mutex
+	targets   map[int64]cachedTarget
+	online    map[int64]int
 }
 
 func New(rdb *redis.Client, log *slog.Logger) *Hub {
@@ -128,6 +151,9 @@ func New(rdb *redis.Client, log *slog.Logger) *Hub {
 		orders:       map[int64]*orderState{},
 		central:      map[chan []byte]struct{}{},
 		watchers:     map[int64]map[chan []byte]struct{}{},
+		writes:       make(chan write, writeQueue),
+		targets:      map[int64]cachedTarget{},
+		online:       map[int64]int{},
 	}
 }
 
@@ -145,6 +171,8 @@ func (h *Hub) Raining() bool {
 
 func (h *Hub) Run(ctx context.Context) {
 	go h.followPositions(ctx)
+	go h.flushPositions(ctx)
+	go h.refreshTargets(ctx)
 	go h.followOrders(ctx)
 	go h.followWeather(ctx)
 	go h.broadcastSnapshots(ctx)
@@ -182,20 +210,159 @@ func (h *Hub) followPositions(ctx context.Context) {
 	sub := h.rdb.Subscribe(ctx, PositionsTopic)
 	defer sub.Close()
 	for msg := range sub.Channel() {
-		var p position
-		if err := json.Unmarshal([]byte(msg.Payload), &p); err != nil {
+		var batch []position
+		if err := json.Unmarshal([]byte(msg.Payload), &batch); err != nil {
 			continue
 		}
 		now := time.Now()
-		positionFanout.Observe(now.Sub(time.UnixMilli(p.At)).Seconds())
 		h.mu.Lock()
-		h.couriers[p.Courier] = &courierState{pos: p, seen: now}
+		for _, p := range batch {
+			h.couriers[p.Courier] = &courierState{pos: p, seen: now}
+		}
 		h.mu.Unlock()
-		if p.Order != 0 {
-			data, _ := json.Marshal(map[string]any{"type": "posicao", "courier_id": p.Courier, "lat": p.Lat, "lon": p.Lon, "phase": p.Phase})
-			h.toWatchers(p.Order, data)
+		for _, p := range batch {
+			positionFanout.Observe(now.Sub(time.UnixMilli(p.At)).Seconds())
+			if p.Order != 0 {
+				data, _ := json.Marshal(map[string]any{"type": "posicao", "courier_id": p.Courier, "lat": p.Lat, "lon": p.Lon, "phase": p.Phase})
+				h.toWatchers(p.Order, data)
+			}
 		}
 	}
+}
+
+// flushPositions junta as posições desta instância e grava a cada flushEvery (ou a cada
+// flushMax): com 10 mil posições/s, uma ida e volta por posição esgotava o pool do Redis.
+func (h *Hub) flushPositions(ctx context.Context) {
+	tick := time.NewTicker(flushEvery)
+	defer tick.Stop()
+	batch := make([]write, 0, flushMax)
+	for {
+		select {
+		case <-ctx.Done():
+			if len(batch) > 0 {
+				last, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+				h.flush(last, batch)
+				cancel()
+			}
+			return
+		case w := <-h.writes:
+			batch = append(batch, w)
+			if len(batch) < flushMax {
+				continue
+			}
+		case <-tick.C:
+			if len(batch) == 0 {
+				continue
+			}
+		}
+		h.flush(ctx, batch)
+		batch = batch[:0]
+	}
+}
+
+func (h *Hub) flush(ctx context.Context, batch []write) {
+	began := time.Now()
+	pipe := h.rdb.Pipeline()
+	locations := make([]*redis.GeoLocation, 0, len(batch))
+	positions := make([]position, 0, len(batch))
+	tracks := map[string]struct{}{}
+	for _, w := range batch {
+		locations = append(locations, &redis.GeoLocation{Name: strconv.FormatInt(w.pos.Courier, 10), Longitude: w.pos.Lon, Latitude: w.pos.Lat})
+		pipe.HSet(ctx, CourierKey(w.pos.Courier), "lat", w.pos.Lat, "lon", w.pos.Lon, "ts", w.pos.At)
+		if w.track != "" {
+			pipe.RPush(ctx, w.track, w.point)
+			tracks[w.track] = struct{}{}
+		}
+		positions = append(positions, w.pos)
+	}
+	pipe.GeoAdd(ctx, GeoKey, locations...)
+	for key := range tracks {
+		pipe.LTrim(ctx, key, -trackLimit, -1)
+		pipe.Expire(ctx, key, journeyTTL)
+	}
+	data, _ := json.Marshal(positions)
+	pipe.Publish(ctx, PositionsTopic, data)
+	if _, err := pipe.Exec(ctx); err != nil && ctx.Err() == nil {
+		flushErrors.Inc()
+		h.log.Warn("lote de posições não gravado", "posições", len(batch), "err", err)
+	}
+	flushSeconds.Observe(time.Since(began).Seconds())
+	batchSize.Observe(float64(len(batch)))
+}
+
+// refreshTargets relê em bloco, a cada targetEvery, o alvo de quem está conectado nesta
+// instância. Antes era um HGETALL por posição.
+func (h *Hub) refreshTargets(ctx context.Context) {
+	tick := time.NewTicker(targetEvery)
+	defer tick.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-tick.C:
+		}
+		h.targetsMu.Lock()
+		ids := make([]int64, 0, len(h.online))
+		for id := range h.online {
+			ids = append(ids, id)
+		}
+		h.targetsMu.Unlock()
+		for start := 0; start < len(ids); start += targetChunk {
+			if err := h.readTargets(ctx, ids[start:min(start+targetChunk, len(ids))]); err != nil && ctx.Err() == nil {
+				h.log.Warn("alvos não relidos", "err", err)
+			}
+		}
+	}
+}
+
+func (h *Hub) readTargets(ctx context.Context, ids []int64) error {
+	read := time.Now()
+	pipe := h.rdb.Pipeline()
+	cmds := make([]*redis.MapStringStringCmd, len(ids))
+	for i, id := range ids {
+		cmds[i] = pipe.HGetAll(ctx, TargetKey(id))
+	}
+	if _, err := pipe.Exec(ctx); err != nil && !errors.Is(err, redis.Nil) {
+		return err
+	}
+	h.targetsMu.Lock()
+	defer h.targetsMu.Unlock()
+	for i, id := range ids {
+		if _, ok := h.online[id]; !ok {
+			continue
+		}
+		if fields, err := cmds[i].Result(); err == nil {
+			h.targets[id] = cachedTarget{fields: fields, read: read}
+		}
+	}
+	return nil
+}
+
+func (h *Hub) join(ctx context.Context, id int64) {
+	h.targetsMu.Lock()
+	h.online[id]++
+	h.targetsMu.Unlock()
+	// Leitura imediata na conexão: sem ela, a primeira posição de quem já está em corrida
+	// passaria sem alvo até a próxima volta do refreshTargets.
+	if err := h.readTargets(ctx, []int64{id}); err != nil {
+		h.log.Warn("alvo não lido na conexão", "courier", id, "err", err)
+	}
+}
+
+func (h *Hub) leave(id int64) {
+	h.targetsMu.Lock()
+	defer h.targetsMu.Unlock()
+	if h.online[id]--; h.online[id] <= 0 {
+		delete(h.online, id)
+		delete(h.targets, id)
+	}
+}
+
+func (h *Hub) cachedTarget(id int64) (cachedTarget, bool) {
+	h.targetsMu.Lock()
+	defer h.targetsMu.Unlock()
+	c, ok := h.targets[id]
+	return c, ok
 }
 
 func (h *Hub) apply(e Event) {
@@ -295,9 +462,11 @@ func (h *Hub) prune(now time.Time) {
 	}
 }
 
+// snapshot copia o estado sob o lock e serializa fora dele. Com 20 mil entregadores o JSON tem
+// ~1 MB e leva dezenas de ms; serializado com o lock, a goroutine do pub/sub esperava a cada
+// retrato e o p99 do fan-out passava de 300 ms.
 func (h *Hub) snapshot() []byte {
 	h.mu.RLock()
-	defer h.mu.RUnlock()
 	couriers := make([][4]float64, 0, len(h.couriers))
 	now := time.Now()
 	for id, c := range h.couriers {
@@ -310,12 +479,15 @@ func (h *Hub) snapshot() []byte {
 		}
 		couriers = append(couriers, [4]float64{float64(id), c.pos.Lon, c.pos.Lat, busy})
 	}
-	orders := make([]*orderState, 0)
+	orders := make([]orderState, 0)
 	for _, o := range h.orders {
 		if !finished[o.Status] && o.Store != nil {
-			orders = append(orders, o)
+			copied := *o
+			copied.Alerts = maps.Clone(o.Alerts)
+			orders = append(orders, copied)
 		}
 	}
+	h.mu.RUnlock()
 	data, _ := json.Marshal(map[string]any{"type": "snapshot", "couriers": couriers, "orders": orders, "rain": h.Raining()})
 	snapshotCouriers.Set(float64(len(couriers)))
 	return data
@@ -380,6 +552,8 @@ func (h *Hub) ServeCourier(w http.ResponseWriter, r *http.Request) {
 	connected.Inc()
 	defer connected.Dec()
 	ctx := r.Context()
+	h.join(ctx, id)
+	defer h.leave(id)
 	t := tracker{hub: h, id: id}
 	for {
 		_, data, err := conn.Read(ctx)
@@ -404,6 +578,7 @@ type tracker struct {
 	id       int64
 	target   map[string]string
 	fetched  time.Time
+	wrote    time.Time
 	planned  string
 	path     [][2]float64
 	anchor   Point
@@ -411,20 +586,29 @@ type tracker struct {
 	offCount int
 }
 
+// adopt troca o alvo local pelo do cache só se a leitura em bloco começou depois da última
+// escrita deste rastreio no alvo: uma leitura mais velha traria a flag de parado ou desvio
+// ainda sem gravar, e o evento sairia duas vezes.
+func (t *tracker) adopt() {
+	c, ok := t.hub.cachedTarget(t.id)
+	if !ok || !c.read.After(t.fetched) || !c.read.After(t.wrote) {
+		return
+	}
+	t.target = maps.Clone(c.fields)
+	if t.target == nil {
+		t.target = map[string]string{}
+	}
+	t.fetched = c.read
+}
+
 func (t *tracker) update(ctx context.Context, p Point) error {
-	rdb := t.hub.rdb
 	now := time.Now()
-	if now.Sub(t.fetched) > targetFreshness {
-		target, err := rdb.HGetAll(ctx, TargetKey(t.id)).Result()
-		if err != nil {
-			return err
-		}
-		t.target, t.fetched = target, now
+	t.adopt()
+	if t.target == nil {
+		t.target = map[string]string{}
 	}
 	pos := position{Courier: t.id, Lat: p.Lat, Lon: p.Lon, At: now.UnixMilli()}
-	pipe := rdb.Pipeline()
-	pipe.GeoAdd(ctx, GeoKey, &redis.GeoLocation{Name: strconv.FormatInt(t.id, 10), Longitude: p.Lon, Latitude: p.Lat})
-	pipe.HSet(ctx, CourierKey(t.id), "lat", p.Lat, "lon", p.Lon, "ts", now.UnixMilli())
+	w := write{}
 	if order, err := strconv.ParseInt(t.target["order_id"], 10, 64); err == nil && order > 0 {
 		pos.Order, pos.Phase = order, t.target["phase"]
 		lat, _ := strconv.ParseFloat(t.target["lat"], 64)
@@ -444,17 +628,20 @@ func (t *tracker) update(ctx context.Context, p Point) error {
 				return err
 			}
 		}
-		track := TrackKey(order, pos.Phase)
-		pipe.RPush(ctx, track, strconv.FormatFloat(p.Lon, 'f', 6, 64)+","+strconv.FormatFloat(p.Lat, 'f', 6, 64)+","+strconv.FormatInt(now.UnixMilli(), 10))
-		pipe.LTrim(ctx, track, -trackLimit, -1)
-		pipe.Expire(ctx, track, journeyTTL)
+		w.track = TrackKey(order, pos.Phase)
+		w.point = strconv.FormatFloat(p.Lon, 'f', 6, 64) + "," + strconv.FormatFloat(p.Lat, 'f', 6, 64) + "," + strconv.FormatInt(now.UnixMilli(), 10)
 	} else {
 		t.planned = ""
 	}
-	data, _ := json.Marshal(pos)
-	pipe.Publish(ctx, PositionsTopic, data)
-	_, err := pipe.Exec(ctx)
-	return err
+	w.pos = pos
+	// Fila cheia segura a leitura do WebSocket em vez de descartar: sobrecarga aparece como
+	// atraso medido, não como posição perdida em silêncio.
+	select {
+	case t.hub.writes <- w:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 func (t *tracker) plan(ctx context.Context, order int64, phase string, from, to Point) [][2]float64 {
@@ -530,12 +717,16 @@ func (t *tracker) watch(ctx context.Context, order int64, phase string, p Point,
 }
 
 func (t *tracker) flag(ctx context.Context, field string, on bool) error {
+	var err error
 	if on {
 		t.target[field] = "1"
-		return t.hub.rdb.HSet(ctx, TargetKey(t.id), field, 1).Err()
+		err = t.hub.rdb.HSet(ctx, TargetKey(t.id), field, 1).Err()
+	} else {
+		delete(t.target, field)
+		err = t.hub.rdb.HDel(ctx, TargetKey(t.id), field).Err()
 	}
-	delete(t.target, field)
-	return t.hub.rdb.HDel(ctx, TargetKey(t.id), field).Err()
+	t.wrote = time.Now()
+	return err
 }
 
 func (t *tracker) emit(ctx context.Context, kind string, order int64, phase string, extra map[string]any) error {
@@ -586,6 +777,7 @@ func (t *tracker) arrive(ctx context.Context, order int64, phase string) error {
 		return nil
 	}
 	first, err := t.hub.rdb.HSetNX(ctx, TargetKey(t.id), "arrived_"+phase, time.Now().UnixMilli()).Result()
+	t.wrote = time.Now()
 	if err != nil || !first {
 		return err
 	}

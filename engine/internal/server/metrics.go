@@ -11,7 +11,7 @@ import (
 var routeSeconds = promauto.NewHistogramVec(prometheus.HistogramOpts{
 	Name:    "gdrive_route_seconds",
 	Help:    "Tempo da busca no grafo, por tipo de consulta.",
-	Buckets: prometheus.ExponentialBuckets(0.0001, 2, 15),
+	Buckets: prometheus.ExponentialBuckets(0.0001, 1.5, 26),
 }, []string{"kind"})
 
 func init() {

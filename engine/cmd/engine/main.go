@@ -64,7 +64,9 @@ func main() {
 			log.Error("REDIS_URL inválida", "err", err)
 			os.Exit(1)
 		}
-		hub = live.New(redis.NewClient(opts), log)
+		rdb := redis.NewClient(opts)
+		live.ObservePool(rdb)
+		hub = live.New(rdb, log)
 		if d, err := time.ParseDuration(os.Getenv("STOPPED_AFTER")); err == nil {
 			hub.SetStoppedAfter(d)
 		}

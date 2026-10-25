@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -438,5 +439,95 @@ func TestDuasInstanciasDividemOTempoReal(t *testing.T) {
 	readUntil(t, central, func(m map[string]any) bool {
 		couriers, _ := m["couriers"].([]any)
 		return m["type"] == "snapshot" && len(couriers) == 1 && couriers[0].([]any)[0].(float64) == 7
+	})
+}
+
+// O retrato é serializado fora do lock. Com -race, este teste pega qualquer campo de pedido ou de
+// entregador lido depois do RUnlock enquanto outro evento o altera.
+func TestRetratoSerializadoForaDoLockSemCorrida(t *testing.T) {
+	hub := New(nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	store := &Point{-12.97, -38.50}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for i := range 2000 {
+			e := Event{Type: "entregador_parado", Order: int64(i%5 + 1), Version: i, Status: "em_rota", Store: store, Alert: "parado", AlertAt: int64(i)}
+			if i%2 == 1 {
+				e.Type = "alerta_resolvido"
+			}
+			hub.apply(e)
+			hub.mu.Lock()
+			hub.couriers[int64(i%50)] = &courierState{pos: position{Courier: int64(i % 50), Order: int64(i % 2)}, seen: time.Now()}
+			hub.mu.Unlock()
+		}
+	}()
+	for {
+		select {
+		case <-done:
+			return
+		default:
+			if !json.Valid(hub.snapshot()) {
+				t.Fatal("retrato com JSON inválido")
+			}
+		}
+	}
+}
+
+func TestPosicoesDeVariosEntregadoresSaemNumPublishSo(t *testing.T) {
+	_, rdb, ts := setup(t)
+	sub := rdb.Subscribe(context.Background(), PositionsTopic)
+	t.Cleanup(func() { sub.Close() })
+	if _, err := sub.Receive(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	for i := range 20 {
+		conn := dial(t, ts, "/ws/courier?id="+strconv.Itoa(100+i))
+		send(t, conn, Point{-12.97, -38.50 + float64(i)/1000})
+	}
+	messages, positions := 0, 0
+	for positions < 20 {
+		select {
+		case msg := <-sub.Channel():
+			var batch []position
+			if err := json.Unmarshal([]byte(msg.Payload), &batch); err != nil {
+				t.Fatalf("lote ilegível: %v", err)
+			}
+			messages++
+			positions += len(batch)
+		case <-time.After(3 * time.Second):
+			t.Fatalf("chegaram %d de 20 posições", positions)
+		}
+	}
+	if messages >= 20 {
+		t.Fatalf("%d PUBLISH para 20 posições: não houve lote", messages)
+	}
+}
+
+func TestLeituraDoAlvoMaisVelhaQueAFlagNaoApagaAFlag(t *testing.T) {
+	hub := New(nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	tr := tracker{hub: hub, id: 1, target: map[string]string{"order_id": "5", "stopped": "1"}, wrote: time.Now()}
+	hub.targets[1] = cachedTarget{fields: map[string]string{"order_id": "5"}, read: tr.wrote.Add(-time.Millisecond)}
+	tr.adopt()
+	if tr.target["stopped"] != "1" {
+		t.Fatal("leitura anterior à flag apagou a flag de parado")
+	}
+	hub.targets[1] = cachedTarget{fields: map[string]string{"order_id": "6"}, read: tr.wrote.Add(time.Millisecond)}
+	tr.adopt()
+	if tr.target["order_id"] != "6" {
+		t.Fatalf("leitura posterior à flag não foi adotada: %v", tr.target)
+	}
+}
+
+func TestAlvoAtribuidoDepoisDaConexaoChegaPeloCache(t *testing.T) {
+	_, rdb, ts := setup(t)
+	ctx := context.Background()
+	conn := dial(t, ts, "/ws/courier?id=12")
+	send(t, conn, Point{-12.95, -38.45})
+	time.Sleep(100 * time.Millisecond)
+	rdb.HSet(ctx, TargetKey(12), "order_id", 90, "lat", -12.9501, "lon", -38.4501, "phase", "loja")
+	eventually(t, "chegada com o alvo atribuído depois da conexão", func() bool {
+		send(t, conn, Point{-12.9501, -38.4501})
+		n, _ := rdb.XLen(ctx, TrackingStream).Result()
+		return n == 1
 	})
 }

@@ -61,7 +61,7 @@ var (
 	writeSeconds = promauto.NewHistogram(prometheus.HistogramOpts{
 		Name:    "gdrive_load_write_seconds",
 		Help:    "Tempo para escrever uma posição no WebSocket.",
-		Buckets: prometheus.ExponentialBuckets(0.0001, 2, 15),
+		Buckets: prometheus.ExponentialBuckets(0.0001, 1.5, 26),
 	})
 )
 
