@@ -3,7 +3,9 @@ import logging
 import os
 import signal
 import socket
+import time
 
+from prometheus_client import start_http_server
 from redis.asyncio import Redis
 
 from app import orders
@@ -12,6 +14,7 @@ from app.dispatch import dispatch
 from app.engine import Engine
 from app.history import save_track
 from app.jobs import run_due
+from app.metrics import DISPATCH_SECONDS
 from app.monitor import check_late, watch_signal
 from app.outbox import relay_once
 from app.tracking import consume_once, ensure_group, reclaim_once
@@ -21,7 +24,9 @@ log = logging.getLogger("gdrive.worker")
 
 def handlers(redis: Redis, engine: Engine) -> dict:
     async def run_dispatch(conn, order_id: int):
-        await dispatch(conn, order_id, redis, engine)
+        start = time.perf_counter()
+        result = await dispatch(conn, order_id, redis, engine)
+        DISPATCH_SECONDS.labels(result).observe(time.perf_counter() - start)
 
     return {
         "dispatch": run_dispatch,
@@ -51,6 +56,7 @@ async def main() -> None:
     redis = Redis.from_url(settings.redis_url, decode_responses=True)
     engine = Engine(settings.engine_url)
     consumer = f"{socket.gethostname()}-{os.getpid()}"
+    start_http_server(settings.metrics_port)
     await ensure_group(redis)
     jobs = handlers(redis, engine)
     stop = asyncio.Event()

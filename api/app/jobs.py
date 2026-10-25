@@ -5,6 +5,7 @@ from collections.abc import Awaitable, Callable
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from app.db import loads, many, run, transaction
+from app.metrics import JOBS
 
 log = logging.getLogger("gdrive.jobs")
 
@@ -39,8 +40,10 @@ async def run_due(handlers: dict[str, Handler], limit: int = 10) -> int:
                     "UPDATE jobs SET done_at = now(), attempts = attempts + 1 WHERE id = :id",
                     id=row["id"],
                 )
+                JOBS.labels(row["kind"], "ok").inc()
             except Exception as exc:
                 log.exception("job %s (%s) falhou", row["id"], row["kind"])
+                JOBS.labels(row["kind"], "erro").inc()
                 await run(
                     conn,
                     "UPDATE jobs SET attempts = attempts + 1, last_error = :error, "

@@ -5,7 +5,8 @@ from contextlib import asynccontextmanager
 
 import httpx
 from fastapi import FastAPI, Path, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
+from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from pydantic import BaseModel, Field
 from redis.asyncio import Redis
 
@@ -15,6 +16,7 @@ from app.db import loads, many, one, run, transaction
 from app.dispatch import free_nearby, ranking
 from app.engine import Engine
 from app.history import legs
+from app.metrics import HttpMetrics
 from app.seed import seed_if_empty
 
 log = logging.getLogger("gdrive.api")
@@ -47,6 +49,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="GDrive API", lifespan=lifespan)
+app.add_middleware(HttpMetrics)
 
 
 @app.exception_handler(orders.Conflict)
@@ -96,6 +99,11 @@ class SimCommandIn(BaseModel):
 @app.get("/api/healthz")
 async def healthz():
     return {"status": "ok"}
+
+
+@app.get("/metrics", include_in_schema=False)
+async def metrics():
+    return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
 async def place_order(request: Request, store_id: int, address_id: int):

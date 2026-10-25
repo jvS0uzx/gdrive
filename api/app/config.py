@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     time_scale: float = 1
     signal_lost_seconds: int = 20
     signal_check_seconds: float = 5
+    metrics_port: int = 9100
 
 
 settings = Settings()
