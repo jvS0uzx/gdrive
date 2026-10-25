@@ -296,7 +296,8 @@ export default function CourierApp({ id }: { id: number }) {
       position.current = next;
       const from = shown.current;
       cancelAnimationFrame(animation.current);
-      if (!from) {
+      const still = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      if (!from || still) {
         placeDot(next);
         return;
       }
@@ -503,13 +504,13 @@ export default function CourierApp({ id }: { id: number }) {
                   className={`num text-[13px] font-medium ${hurry ? "text-target" : "text-strong"}`}
                   data-testid="oferta-contagem"
                 >
-                  {offerLeft} s
+                  {offerLeft}&nbsp;s
                 </p>
               </div>
               <div className="mt-2 h-1 overflow-hidden rounded-full bg-raised" aria-hidden="true">
                 <div
-                  className={`h-full rounded-full transition-[width] duration-1000 ease-linear ${hurry ? "bg-target" : "bg-strong"}`}
-                  style={{ width: `${Math.min(100, (offerLeft / OFFER_SECONDS) * 100)}%` }}
+                  className={`h-full w-full origin-left rounded-full transition-transform duration-1000 ease-linear motion-reduce:transition-none ${hurry ? "bg-target" : "bg-strong"}`}
+                  style={{ transform: `scaleX(${Math.min(1, offerLeft / OFFER_SECONDS)})` }}
                 />
               </div>
               <p className="mt-3 text-[15px] font-semibold">{offer.store.name}</p>
@@ -608,14 +609,18 @@ export default function CourierApp({ id }: { id: number }) {
           {courier && !offer && !ride && (
             <section data-testid="espera">
               {notice && (
-                <p className="mb-3 border-l-2 border-origin pl-3 text-[13px] text-origin" data-testid="aviso-entrega">
+                <p
+                  className="mb-3 border-l-2 border-origin pl-3 text-[13px] text-origin"
+                  data-testid="aviso-entrega"
+                  aria-live="polite"
+                >
                   {notice}
                 </p>
               )}
               <p className="text-[15px] font-semibold">{online ? "Esperando um pedido" : "Você está offline"}</p>
               <p className="meta mt-0.5">
                 {online
-                  ? `As ofertas aparecem aqui. Você tem ${OFFER_SECONDS} s para responder.`
+                  ? `As ofertas aparecem aqui. Você tem ${OFFER_SECONDS} s para responder.`
                   : "Fique online para receber ofertas perto de você."}
               </p>
             </section>
@@ -634,12 +639,13 @@ export default function CourierApp({ id }: { id: number }) {
                 <span className="meta block">
                   {autopilot
                     ? `Segue a rota a ${speed}× a velocidade da via.`
-                    : "Desligado, você fica parado. A central avisa em 30 s."}
+                    : "Desligado, você fica parado. A central avisa em 30 s."}
                 </span>
               </span>
               <input
                 type="checkbox"
                 role="switch"
+                name="piloto_automatico"
                 checked={autopilot}
                 onChange={(e) => setAutopilot(e.target.checked)}
                 className={toggle}

@@ -259,7 +259,7 @@ export default function OrderTracking({ id }: { id: number }) {
               {detail.prep_minutes !== null && (
                 <>
                   <dt className="text-muted">Preparo</dt>
-                  <dd className="num">{detail.prep_minutes} min</dd>
+                  <dd className="num">{detail.prep_minutes}&nbsp;min</dd>
                 </>
               )}
             </dl>

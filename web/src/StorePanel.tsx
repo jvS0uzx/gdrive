@@ -14,6 +14,7 @@ import { metersBetween } from "./cityMap";
 import { formatClock, formatDistance } from "./format";
 import { statusTone } from "./labels";
 import { Link } from "./router";
+import { useUndoQueue } from "./undo";
 
 const POLL_MS = 2000;
 const AUTO_REFUSE_MS = 5 * 60_000;
@@ -89,7 +90,9 @@ interface CardProps {
   onPrep: (minutes: number) => void;
   onAccept: () => void;
   onReject: () => void;
+  onUndo: () => void;
   onReady: () => void;
+  pending: string | null;
 }
 
 function OrderId({ id }: { id: number }) {
@@ -121,7 +124,7 @@ function OutRow({ order, error }: { order: StoreOrder; error: string | null }) {
   );
 }
 
-function OrderCard({ order, store, now, busy, error, prep, onPrep, onAccept, onReject, onReady }: CardProps) {
+function OrderCard({ order, store, now, busy, error, prep, onPrep, onAccept, onReject, onUndo, onReady, pending }: CardProps) {
   const column = columnOf(order);
   const meters = metersBetween([store.lon, store.lat], [order.customer_lon, order.customer_lat]);
   const left = Date.parse(order.created_at) + AUTO_REFUSE_MS - now;
@@ -156,6 +159,7 @@ function OrderCard({ order, store, now, busy, error, prep, onPrep, onAccept, onR
               value={prep}
               onChange={(e) => onPrep(Number(e.target.value))}
               disabled={busy}
+              name="preparo"
               aria-label={`Tempo de preparo do pedido #${order.id}`}
               className="num h-7 rounded-md border border-line bg-ink px-1.5 text-xs text-strong"
             >
@@ -166,14 +170,23 @@ function OrderCard({ order, store, now, busy, error, prep, onPrep, onAccept, onR
               ))}
             </select>
           </label>
-          <div className="mt-2.5 grid grid-cols-2 gap-2">
-            <button type="button" className="btn btn-danger" disabled={busy} onClick={onReject}>
-              Recusar
-            </button>
-            <button type="button" className="btn btn-primary" disabled={busy} onClick={onAccept}>
-              Aceitar
-            </button>
-          </div>
+          {pending ? (
+            <div className="mt-2.5 flex items-center justify-between gap-2 text-xs text-strong" role="status">
+              <span>{pending}…</span>
+              <button type="button" className="btn h-7 px-2.5 text-xs" onClick={onUndo}>
+                Desfazer
+              </button>
+            </div>
+          ) : (
+            <div className="mt-2.5 grid grid-cols-2 gap-2">
+              <button type="button" className="btn btn-danger" disabled={busy} onClick={onReject}>
+                Recusar
+              </button>
+              <button type="button" className="btn btn-primary" disabled={busy} onClick={onAccept}>
+                Aceitar
+              </button>
+            </div>
+          )}
         </>
       )}
 
@@ -226,6 +239,7 @@ export default function StorePanel({ id }: { id: number }) {
   const [notice, setNotice] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
   const requests = useRef(0);
   const now = useNow(1000);
+  const rejections = useUndoQueue();
 
   useEffect(() => {
     let alive = true;
@@ -359,6 +373,7 @@ export default function StorePanel({ id }: { id: number }) {
             <input
               type="checkbox"
               role="switch"
+              name="operar_na_mao"
               checked={store.manual}
               disabled={switching}
               onChange={(e) => toggleManual(e.target.checked)}
@@ -371,7 +386,11 @@ export default function StorePanel({ id }: { id: number }) {
               </span>
             </span>
           </label>
-          {manualError && <p className="text-xs text-target">{manualError}</p>}
+          {manualError && (
+            <p className="text-xs text-target" aria-live="polite">
+              {manualError}
+            </p>
+          )}
           <div className="flex items-center gap-3">
             <button type="button" className="btn" disabled={creating} onClick={testOrder}>
               {creating ? "Gerando…" : "Gerar pedido de teste"}
@@ -387,7 +406,11 @@ export default function StorePanel({ id }: { id: number }) {
         </div>
       </header>
 
-      {ordersError && <p className="px-4 py-2 text-sm text-target sm:px-6">{ordersError}</p>}
+      {ordersError && (
+        <p className="px-4 py-2 text-sm text-target sm:px-6" aria-live="polite">
+          {ordersError}
+        </p>
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:min-h-0 lg:flex-1 lg:grid-cols-4">
         {COLUMNS.map((column) => {
@@ -431,7 +454,13 @@ export default function StorePanel({ id }: { id: number }) {
                         onAccept={() =>
                           act(order.id, () => storeAccept(id, order.id, prep[order.id] ?? store.default_prep_minutes))
                         }
-                        onReject={() => act(order.id, () => storeReject(id, order.id))}
+                        pending={rejections.pending[order.id] ?? null}
+                        onReject={() =>
+                          rejections.schedule(order.id, `Pedido #${order.id} será recusado`, () =>
+                            act(order.id, () => storeReject(id, order.id)),
+                          )
+                        }
+                        onUndo={() => rejections.undo(order.id)}
                         onReady={() => act(order.id, () => storeReady(id, order.id))}
                       />
                     ),

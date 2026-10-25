@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Marker, type GeoJSONSource, type Map as MapLibre, type MapMouseEvent } from "maplibre-gl";
 import { fetchRoute, type LngLat, type RouteResult } from "./api";
 import { COLORS, EMPTY, ROADS, byZoom, line, pin, point, useCityMap } from "./cityMap";
@@ -10,6 +10,20 @@ type Points = { origin?: LngLat; target?: LngLat };
 function listRoads(names: string[]): string {
   if (names.length <= 1) return names.join("");
   return `${names.slice(0, -1).join(", ")} e ${names[names.length - 1]}`;
+}
+
+// Ponto decimal só: vírgula decimal colide com a vírgula que separa lat e lon.
+function parseLngLat(text: string): LngLat | null {
+  const match = /^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*$/.exec(text);
+  if (!match) return null;
+  const lat = Number(match[1]);
+  const lon = Number(match[2]);
+  if (Math.abs(lat) > 90 || Math.abs(lon) > 180) return null;
+  return [lon, lat];
+}
+
+function formatLngLat(at: LngLat | undefined): string {
+  return at ? `${at[1].toFixed(5)}, ${at[0].toFixed(5)}` : "";
 }
 
 function positionAt(route: RouteResult, elapsed: number): LngLat {
@@ -62,6 +76,8 @@ export default function RoutePlanner() {
   const { container, map, meta, ready, error: cityError } = useCityMap(addRouteLayers);
   const markers = useRef<{ origin?: Marker; target?: Marker }>({});
   const [points, setPoints] = useState<Points>({});
+  const [fields, setFields] = useState({ origin: "", target: "" });
+  const [fieldError, setFieldError] = useState<string | null>(null);
   const [rain, setRain] = useState(false);
   const [route, setRoute] = useState<RouteResult | null>(null);
   const [loading, setLoading] = useState(false);
@@ -71,6 +87,22 @@ export default function RoutePlanner() {
   useEffect(() => {
     document.title = "Rota · Gdrive";
   }, []);
+
+  useEffect(() => {
+    setFields({ origin: formatLngLat(points.origin), target: formatLngLat(points.target) });
+  }, [points]);
+
+  const submitFields = (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const origin = parseLngLat(fields.origin);
+    const target = parseLngLat(fields.target);
+    if (!origin || !target) {
+      setFieldError("Use lat, lon com ponto decimal, por exemplo -12.97, -38.50. Preencha os dois campos.");
+      return;
+    }
+    setFieldError(null);
+    setPoints({ origin, target });
+  };
 
   useEffect(() => {
     const m = map.current;
@@ -207,6 +239,44 @@ export default function RoutePlanner() {
           ) : null}
         </section>
 
+        <form onSubmit={submitFields} className="border-b border-line px-5 py-4" aria-label="Rota por coordenadas">
+          <p className="meta">Ou digite as coordenadas, sem clicar no mapa.</p>
+          <div className="mt-3 grid gap-3">
+            <label className="grid gap-1 text-xs text-muted">
+              Origem
+              <input
+                name="origem"
+                autoComplete="off"
+                spellCheck={false}
+                value={fields.origin}
+                onChange={(e) => setFields((f) => ({ ...f, origin: e.target.value }))}
+                placeholder="Ex.: -12.97, -38.50…"
+                className="h-9 rounded-md border border-line bg-panel px-2.5 text-sm text-strong placeholder:text-faint"
+              />
+            </label>
+            <label className="grid gap-1 text-xs text-muted">
+              Destino
+              <input
+                name="destino"
+                autoComplete="off"
+                spellCheck={false}
+                value={fields.target}
+                onChange={(e) => setFields((f) => ({ ...f, target: e.target.value }))}
+                placeholder="Ex.: -12.98, -38.51…"
+                className="h-9 rounded-md border border-line bg-panel px-2.5 text-sm text-strong placeholder:text-faint"
+              />
+            </label>
+          </div>
+          {fieldError && (
+            <p className="mt-2 text-xs text-target" aria-live="polite">
+              {fieldError}
+            </p>
+          )}
+          <button type="submit" className="btn mt-3">
+            Calcular rota
+          </button>
+        </form>
+
         <label className="flex cursor-pointer items-center justify-between gap-3 border-y border-line px-5 py-3 transition-colors hover:bg-raised">
           <span>
             <span className="block text-sm font-medium">Chuva</span>
@@ -214,6 +284,7 @@ export default function RoutePlanner() {
           </span>
           <input
             type="checkbox"
+            name="chuva"
             checked={rain}
             onChange={(e) => setRain(e.target.checked)}
             className="size-4 accent-route"

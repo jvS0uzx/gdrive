@@ -42,6 +42,12 @@ li {
   text-wrap: pretty;
 }
 
+h1,
+h2,
+h3 {
+  text-wrap: balance;
+}
+
 :focus-visible {
   outline: 2px solid var(--color-route);
   outline-offset: 2px;
@@ -77,6 +83,8 @@ textarea:focus-visible {
 }
 
 @utility btn {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -129,6 +137,8 @@ textarea:focus-visible {
 }
 
 @utility link {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
   color: var(--color-strong);
   text-decoration: underline;
   text-decoration-color: var(--color-faint);
@@ -140,6 +150,8 @@ textarea:focus-visible {
 }
 
 @utility switch {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
   position: relative;
   height: 1.25rem;
   width: 2.25rem;
@@ -178,4 +190,16 @@ textarea:focus-visible {
 @utility dock {
   background: var(--color-panel);
   border-color: var(--color-line);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .btn,
+  .btn::before,
+  .switch,
+  .switch::before {
+    transition: none;
+  }
+  .btn:active:not(:disabled) {
+    transform: none;
+  }
 }

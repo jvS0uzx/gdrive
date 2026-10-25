@@ -19,14 +19,33 @@ const COLUMNS = {
   alertas: { label: "Alertas", className: `${fit} hidden text-right lg:table-cell` },
 };
 
+const BASE_PATH = "/historico";
+
+// A página vem da query para o link ser compartilhável e o botão voltar funcionar.
+function offsetFromUrl(): number {
+  const page = Number(new URLSearchParams(window.location.search).get("pagina"));
+  return Number.isInteger(page) && page > 1 ? (page - 1) * PAGE_SIZE : 0;
+}
+
+function pageUrl(offset: number): string {
+  return offset === 0 ? BASE_PATH : `${BASE_PATH}?pagina=${offset / PAGE_SIZE + 1}`;
+}
+
 export default function History() {
-  const [offset, setOffset] = useState(0);
+  const [offset, setOffset] = useState(offsetFromUrl);
   const [page, setPage] = useState<HistoryPage | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     document.title = "Histórico · Gdrive";
+  }, []);
+
+  // O roteador só re-renderiza ao trocar o caminho; a troca de página muda só a query.
+  useEffect(() => {
+    const sync = () => setOffset(offsetFromUrl());
+    window.addEventListener("popstate", sync);
+    return () => window.removeEventListener("popstate", sync);
   }, []);
 
   useEffect(() => {
@@ -58,14 +77,14 @@ export default function History() {
             <p className="meta mt-1">Abra uma entrega para rever o trajeto no mapa.</p>
           </header>
           <div className="flex items-center gap-2">
-            <span className="num mr-1 text-xs text-muted" data-testid="paginacao">
+            <span className="num mr-1 text-xs text-muted" data-testid="paginacao" aria-live="polite">
               {page ? `${formatInt(first)}–${formatInt(last)} de ${formatInt(total)}` : "—"}
             </span>
             <button
               type="button"
               className="btn"
               disabled={loading || offset === 0}
-              onClick={() => setOffset((o) => Math.max(0, o - PAGE_SIZE))}
+              onClick={() => navigate(pageUrl(Math.max(0, offset - PAGE_SIZE)))}
             >
               Mais recentes
             </button>
@@ -73,16 +92,20 @@ export default function History() {
               type="button"
               className="btn"
               disabled={loading || offset + PAGE_SIZE >= total}
-              onClick={() => setOffset((o) => o + PAGE_SIZE)}
+              onClick={() => navigate(pageUrl(offset + PAGE_SIZE))}
             >
               Mais antigas
             </button>
           </div>
         </div>
 
-        {error && <p className="mt-4 text-sm text-target">{error}</p>}
+        {error && (
+          <p className="mt-4 text-sm text-target" aria-live="polite">
+            {error}
+          </p>
+        )}
 
-        <div className="-mx-3 mt-6">
+        <div className="-mx-3 mt-6 overflow-x-auto">
           <table className="w-full text-left text-[13px]" data-testid="tabela-historico">
             <thead>
               <tr className="border-b border-line text-xs text-muted">
@@ -100,6 +123,7 @@ export default function History() {
                   data-testid="linha-historico"
                   onClick={(e) => {
                     if ((e.target as HTMLElement).closest("a")) return;
+                    if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
                     navigate(`/historico/${item.id}`);
                   }}
                   className="cursor-pointer border-b border-line transition-colors hover:bg-panel"

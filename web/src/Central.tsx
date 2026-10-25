@@ -455,6 +455,7 @@ export default function Central() {
               <h2 className="section-title">Alertas</h2>
               <span
                 data-testid="alertas-abertos"
+                aria-live="polite"
                 className={`num text-sm ${summary?.alerted.length ? "text-target" : "text-strong"}`}
               >
                 {summary ? formatInt(summary.alerted.length) : "—"}
@@ -469,6 +470,8 @@ export default function Central() {
                       onClick={() => setSelection({ kind: "order", id: order.id })}
                       onMouseEnter={() => setHovered(order.id)}
                       onMouseLeave={() => setHovered(null)}
+                      onFocus={() => setHovered(order.id)}
+                      onBlur={() => setHovered(null)}
                       className="flex w-full items-baseline gap-2 rounded px-2 py-1 text-left transition-colors hover:bg-raised"
                     >
                       <span className="mono w-12 shrink-0 text-xs text-faint">#{order.id}</span>
@@ -526,6 +529,8 @@ export default function Central() {
                       to={`/pedido/${o.id}`}
                       onMouseEnter={() => setHovered(o.id)}
                       onMouseLeave={() => setHovered(null)}
+                      onFocus={() => setHovered(o.id)}
+                      onBlur={() => setHovered(null)}
                       className={`flex items-baseline gap-2 px-4 py-1.5 text-[13px] transition-colors hover:bg-raised ${
                         selection?.kind === "order" && selection.id === o.id ? "bg-raised" : ""
                       }`}

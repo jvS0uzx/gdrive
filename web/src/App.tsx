@@ -69,6 +69,12 @@ export default function App() {
   const path = usePath();
   return (
     <div className="flex h-full flex-col font-sans text-strong">
+      <a
+        href="#conteudo"
+        className="sr-only focus:not-sr-only focus:fixed focus:left-3 focus:top-2 focus:z-50 focus:rounded-md focus:bg-raised focus:px-3 focus:py-2 focus:text-sm focus:text-strong"
+      >
+        Ir para o conteúdo
+      </a>
       <header className="flex h-12 shrink-0 items-stretch gap-2 border-b border-line bg-panel pl-3 pr-2 sm:gap-6 sm:px-4">
         <Link to="/" className="flex shrink-0 items-center gap-1.5" aria-label="Gdrive, ir para a central">
           <BrandSymbol className="size-8 shrink-0" />
@@ -85,7 +91,9 @@ export default function App() {
         </nav>
         <p className="ml-auto hidden shrink-0 items-center text-xs text-faint lg:flex">Salvador, BA</p>
       </header>
-      <main className="relative min-h-0 flex-1">{page(path)}</main>
+      <main id="conteudo" tabIndex={-1} className="relative min-h-0 flex-1">
+        {page(path)}
+      </main>
     </div>
   );
 }

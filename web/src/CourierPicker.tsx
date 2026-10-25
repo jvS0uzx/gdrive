@@ -77,7 +77,11 @@ export default function CourierPicker() {
           Escolha um entregador offline. Você aceita, coleta e entrega; o trajeto segue no piloto automático.
         </p>
 
-        {error && <p className="mt-6 text-sm text-target">{error}</p>}
+        {error && (
+          <p className="mt-6 text-sm text-target" aria-live="polite">
+            {error}
+          </p>
+        )}
         {!error && (mine === null || offline === null) && <p className="meta mt-6">Carregando…</p>}
 
         {mine && mine.length > 0 && (

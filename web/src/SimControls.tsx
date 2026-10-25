@@ -32,7 +32,9 @@ export function CourierFaults({ courierId }: { courierId: number }) {
         ))}
       </div>
       {message && (
-        <p className={`mt-1.5 text-xs ${message.error ? "text-target" : "text-muted"}`}>{message.text}</p>
+        <p className={`mt-1.5 text-xs ${message.error ? "text-target" : "text-muted"}`} aria-live="polite">
+          {message.text}
+        </p>
       )}
     </div>
   );
@@ -83,7 +85,7 @@ export default function SimControls({ liveRain }: { liveRain: boolean | undefine
           title="Chuva deixa todo trajeto 40% mais lento"
           className={`btn ${rain ? "border-deep bg-deep/25 text-strong hover:bg-deep/35" : ""}`}
         >
-          {rain ? "Chovendo" : "Sem chuva"}
+          Chuva
         </button>
         <div
           className="flex h-8 items-stretch overflow-hidden rounded-md border border-line text-[13px]"
@@ -112,7 +114,11 @@ export default function SimControls({ liveRain }: { liveRain: boolean | undefine
           })}
         </div>
       </div>
-      {error && <p className="mt-1.5 text-xs text-target">{error}</p>}
+      {error && (
+        <p className="mt-1.5 text-xs text-target" aria-live="polite">
+          {error}
+        </p>
+      )}
     </section>
   );
 }

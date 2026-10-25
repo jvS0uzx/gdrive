@@ -27,6 +27,7 @@ import { LineSample } from "./MapParts";
 import { LEGS, LEG_COLORS, OFF_ROUTE_METERS, alternativeFeatures, deviation, journeyFeatures } from "./routeLayers";
 import { Link } from "./router";
 import { CourierFaults } from "./SimControls";
+import { useUndoQueue } from "./undo";
 
 type Stage = "loja" | "cliente" | "fixo";
 
@@ -142,6 +143,8 @@ function Operation({ orderId, order, status }: { orderId: number; order: LiveOrd
   const [message, setMessage] = useState<{ text: string; error: boolean } | null>(null);
   const courier = order?.courier_id;
   const alerts = Object.entries(order?.alerts ?? {}).sort((a, b) => (a[1] ?? 0) - (b[1] ?? 0));
+  const unassignQueue = useUndoQueue();
+  const unassigning = unassignQueue.pending[orderId] ?? null;
 
   useEffect(() => {
     setCandidates(null);
@@ -169,7 +172,7 @@ function Operation({ orderId, order, status }: { orderId: number; order: LiveOrd
   const canUnassign = courier !== undefined && UNASSIGNABLE.includes(status);
   const canAssign = status === "em_preparo";
   const canFault = courier !== undefined && MOVING.includes(status);
-  if (!order || (!alerts.length && !canUnassign && !canAssign && !canFault)) return null;
+  if (!order || (!alerts.length && !canUnassign && !canAssign && !canFault && !unassigning)) return null;
 
   return (
     <section data-testid="analise-operacao">
@@ -188,16 +191,28 @@ function Operation({ orderId, order, status }: { orderId: number; order: LiveOrd
         </ul>
       )}
       <div className="mt-2 flex flex-wrap gap-2">
-        {canUnassign && (
+        {canUnassign && !unassigning && (
           <button
             type="button"
             disabled={busy}
-            onClick={() => act(() => unassignOrder(orderId), `#${courier} liberado; o despacho procura outro entregador.`)}
+            onClick={() =>
+              unassignQueue.schedule(orderId, `#${courier} será liberado`, () =>
+                act(() => unassignOrder(orderId), `#${courier} liberado; o despacho procura outro entregador.`),
+              )
+            }
             data-testid="desatribuir"
             className="btn btn-danger"
           >
             Desatribuir o #{courier}
           </button>
+        )}
+        {unassigning && (
+          <p className="flex w-full items-center justify-between gap-2 text-xs text-strong" role="status" data-testid="desatribuir-pendente">
+            <span>{unassigning}…</span>
+            <button type="button" className="btn h-7 px-2.5 text-xs" onClick={() => unassignQueue.undo(orderId)}>
+              Desfazer
+            </button>
+          </p>
         )}
         {canAssign && (
           <button
@@ -225,6 +240,7 @@ function Operation({ orderId, order, status }: { orderId: number; order: LiveOrd
                   type="button"
                   disabled={busy}
                   onClick={() => act(() => assignOrder(orderId, c.courier_id), `Pedido entregue ao #${c.courier_id}.`)}
+                  aria-label={`Atribuir #${c.courier_id}`}
                   className="btn h-6 px-2 text-xs"
                 >
                   Atribuir
@@ -243,7 +259,11 @@ function Operation({ orderId, order, status }: { orderId: number; order: LiveOrd
         </div>
       )}
       {message && (
-        <p className={`mt-2 text-[11px] ${message.error ? "text-target" : "text-muted"}`} data-testid="operacao-resultado">
+        <p
+          className={`mt-2 text-[11px] ${message.error ? "text-target" : "text-muted"}`}
+          data-testid="operacao-resultado"
+          aria-live="polite"
+        >
           {message.text}
         </p>
       )}
@@ -431,10 +451,11 @@ export default function OrderAnalysis({ orderId, order, courierAt, map, ready, o
     if (s) bounds.extend(lngLat(s));
     if (c) bounds.extend(lngLat(c));
     const wide = window.innerWidth > 900;
+    const still = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     m.fitBounds(bounds, {
       padding: wide ? 56 : 28,
       maxZoom: 15.5,
-      duration: 600,
+      duration: still ? 0 : 600,
     });
   }, [map, ready, alternatives]);
 

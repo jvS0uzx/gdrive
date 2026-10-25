@@ -5,13 +5,20 @@ import { Link } from "./router";
 const SEARCH_DELAY_MS = 250;
 
 export default function StorePicker() {
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState(() => new URLSearchParams(window.location.search).get("busca") ?? "");
   const [stores, setStores] = useState<StoreSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Só celular abre o teclado sozinho; no desktop o foco automático é útil.
+  const [autoFocus] = useState(() => window.matchMedia("(pointer: fine)").matches);
 
   useEffect(() => {
     document.title = "Loja · Gdrive";
   }, []);
+
+  useEffect(() => {
+    const url = query ? `${window.location.pathname}?busca=${encodeURIComponent(query)}` : window.location.pathname;
+    window.history.replaceState(null, "", url);
+  }, [query]);
 
   useEffect(() => {
     let alive = true;
@@ -38,15 +45,21 @@ export default function StorePicker() {
 
         <input
           type="search"
+          name="busca"
+          autoComplete="off"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Buscar pelo nome"
+          placeholder="Ex.: padaria do centro…"
           aria-label="Buscar loja"
-          autoFocus
-          className="mt-6 h-10 w-full rounded-md border border-line bg-panel px-3 text-base text-strong transition-colors placeholder:text-faint focus:border-faint focus:outline-none sm:text-sm"
+          autoFocus={autoFocus}
+          className="mt-6 h-10 w-full rounded-md border border-line bg-panel px-3 text-base text-strong transition-colors placeholder:text-faint sm:text-sm"
         />
 
-        {error && <p className="mt-3 text-sm text-target">{error}</p>}
+        {error && (
+          <p className="mt-3 text-sm text-target" aria-live="polite">
+            {error}
+          </p>
+        )}
 
         {stores === null && !error ? (
           <p className="meta mt-4">Carregando lojas…</p>

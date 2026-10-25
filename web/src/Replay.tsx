@@ -346,6 +346,7 @@ export default function Replay({ id }: { id: number }) {
                 step={SLIDER_STEP_MS}
                 value={clock >= range.end ? sliderMax : Math.round((clock - range.start) / SLIDER_STEP_MS) * SLIDER_STEP_MS}
                 onChange={(e) => seek(range.start + Number(e.target.value))}
+                name="posicao"
                 aria-label="Posição do replay"
                 data-testid="replay-slider"
                 className="mt-4 w-full accent-strong"
